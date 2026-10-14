@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.4
+
+- The page warns when DSH is still running an older host half of the plugin after an update (the page and the host report their versions), and asks for a full restart.
+- The model choice keeps its title while models are loading or unavailable and says why the list is empty, including when the host is too old to list models.
+
 ## 0.1.3
 
 - AI quick add and the AI analysis of a scan can run on a chosen provider and model, picked from the same routes and models as DSH's model picker. The choice applies to the new session only: `selectModel` also saves the choice as the default, so the previous default is saved back right after. The last choice is remembered on this page; it starts from your default model.

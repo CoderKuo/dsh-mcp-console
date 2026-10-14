@@ -63,6 +63,7 @@ test('the plugin registers its channel and serves the page end to end', async ()
   assert.equal(status.value.servers[0].toolCount, 2)
   assert.equal(JSON.stringify(status.value).includes('ghp_secret'), false, 'env values never cross the channel')
   assert.equal(status.value.bundleDir.replace(/\\/gu, '/'), '/dsh-home/mcp-bundles')
+  assert.equal(status.value.version, 'dev', 'the host reports its build for the restart check')
 
   assert.equal((await host.call('servers/toggle', { entryId: 'include:mcp-github', enabled: false })).ok, true)
   assert.deepEqual(toggles, [['include:mcp-github', false]])
