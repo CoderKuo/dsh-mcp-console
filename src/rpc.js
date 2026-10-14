@@ -16,7 +16,7 @@ const ok = value => ({ ok: true, value })
 const failed = message => ({ ok: false, error: { code: 'mcp-console/request-failed', message, details: {} } })
 
 /** Only sentences this plugin authored, or the Plugin Manager's own codes, reach the browser. */
-const SAFE_MESSAGE = /^(?:MCP console:|unknown-plugin|management-required|unaddressable|operation-error)[\s\S]{0,300}$/u
+const SAFE_MESSAGE = /^(?:MCP console:|unknown-plugin|management-required|unaddressable|operation-error|not-removable|bundle-in-use|stop-profile|invalid-spec|incompatible-version)[\s\S]{0,300}$/u
 
 /** A repository URL the quick-add flow accepts: an https link to a code host page. */
 export function acceptRepositoryUrl(value) {
@@ -30,10 +30,13 @@ export function acceptRepositoryUrl(value) {
  * @param options - the operations the page may call.
  * @returns a handler for `connection.rpc.handle(CHANNEL, handler)`.
  */
-export function createConsoleRpc({ status, toggle, setRepository, models, quickAdd, scan, lastScan, analyze }) {
+export function createConsoleRpc({ status, toggle, remove, importServer, wait, setRepository, models, quickAdd, scan, lastScan, analyze }) {
   const endpoints = {
     status: () => status(),
     'servers/toggle': payload => toggle(String(payload?.entryId ?? ''), payload?.enabled === true),
+    'servers/remove': payload => remove(String(payload?.entryId ?? '')),
+    'servers/import': payload => importServer({ client: String(payload?.client ?? ''), name: String(payload?.name ?? '') }),
+    'status/wait': (payload, signal) => wait({ revision: Number(payload?.revision) }, signal),
     'servers/repository': payload => setRepository(String(payload?.rowId ?? ''), typeof payload?.url === 'string' ? payload.url : ''),
     'quick-add': (payload, signal) => quickAdd({
       repositoryUrl: acceptRepositoryUrl(payload?.repositoryUrl),

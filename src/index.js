@@ -18,12 +18,14 @@ import { dirname, join } from 'node:path'
 import z from '@deepseek-ai/schemastery'
 
 import { CHANNEL, DEFAULT_AGENT_PRESET, DEFAULT_SCAN_TIMEOUT_MS, PLUGIN_ID, PLUGIN_VERSION } from './constants.js'
+import { createChangeFeed } from './changes.js'
 import { createRunner, inventoryText, scanLocal } from './discovery.js'
+import { importClientServer } from './importer.js'
 import { listModelChoices } from './models.js'
 import { connectSettings, fieldValue, live } from './preferences.js'
 import { discoveryPrompt, quickAddPrompt } from './prompts.js'
 import { createConsoleRpc } from './rpc.js'
-import { listServers, normalizeRepository, readMcpRows, setServerEnabled } from './servers.js'
+import { deleteServer, listServers, normalizeRepository, readMcpRows, setServerEnabled } from './servers.js'
 import { openPromptSession, pickedModel } from './sessions.js'
 
 export const name = PLUGIN_ID
@@ -93,6 +95,23 @@ export function apply(ctx, config) {
   })
 
   /**
+   * What the page waits on: the tool registry and the Plugin Manager announce
+   * the changes it shows, so the page refreshes on them instead of polling.
+   */
+  const changes = createChangeFeed()
+  ctx.on?.('tools/change', () => changes.bump())
+  ctx.on?.('plugin-manager/changed', () => changes.bump())
+  ctx.effect(() => () => changes.close(), 'mcp-console: change feed')
+  /** Run an action that changes the list, then announce it. */
+  const changing = async action => {
+    try {
+      return await action()
+    } finally {
+      changes.bump()
+    }
+  }
+
+  /**
    * The last local scan. It describes the machine, not the profile, so it is
    * kept in one file under DSH_HOME and survives leaving the page and
    * restarting; the AI analysis reuses it rather than scanning twice.
@@ -135,8 +154,12 @@ export function apply(ctx, config) {
       writable: preference.writable === true,
       bundleDir: bundleDir(),
       version: PLUGIN_VERSION,
+      revision: changes.current(),
     }),
-    toggle: (entryId, enabled) => setServerEnabled(service('pluginManager'), entryId, enabled),
+    toggle: (entryId, enabled) => changing(() => setServerEnabled(service('pluginManager'), entryId, enabled)),
+    remove: entryId => changing(() => deleteServer({ pluginManager: service('pluginManager'), entryId, profileDir: profile()?.dir, bundleDir: bundleDir() })),
+    importServer: ({ client, name }) => changing(() => importClientServer({ pluginManager: service('pluginManager'), client, name, existingNames: existingNames(), bundleDir: bundleDir() })),
+    wait: ({ revision }, signal) => changes.wait(revision, { signal }),
     setRepository: async (rowId, url) => {
       if (rowId === '') throw new Error('MCP console: unknown server')
       if (preference.writable !== true) throw new Error('MCP console: settings are not writable in this profile')
@@ -195,6 +218,8 @@ export { acceptRepositoryUrl, createConsoleRpc } from './rpc.js'
 export { clientConfigPaths, createRunner, inventoryText, parseClientServers, readClientServers, scanLocal } from './discovery.js'
 export { discoveryPrompt, quickAddPrompt } from './prompts.js'
 export { MASK, redactArgs, redactConfig, redactMap } from './redact.js'
-export { listServers, normalizeRepository, readMcpRows, serverStatus, setServerEnabled, toolPrefix, toolsByServer } from './servers.js'
+export { bundleSourceDir, deleteServer, isInside, listServers, normalizeRepository, readMcpRows, serverStatus, setServerEnabled, toolPrefix, toolsByServer } from './servers.js'
+export { createChangeFeed } from './changes.js'
+export { bundleFiles, importClientServer, readClientServer, serverNameFor, toMcpClientConfig } from './importer.js'
 export { listModelChoices } from './models.js'
 export { openPromptSession, pickedModel, resolveDefaultWorkspace, selectSessionModel } from './sessions.js'

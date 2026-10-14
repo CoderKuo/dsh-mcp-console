@@ -16,7 +16,8 @@ import { STYLE } from './client-style.js'
 const NS = 'mcpConsole'
 const CHANNEL = '/mcp-console'
 const PANEL_ID = 'mcp-console'
-const POLL_MS = 5_000
+/** Pause before waiting again after a failed wait (host restarting, connection reset). */
+const RETRY_MS = 3_000
 /* global __MCP_CONSOLE_VERSION__ */
 /** This page's build; compared with the host's to catch a DSH that was not restarted after an update. */
 const CLIENT_VERSION = typeof __MCP_CONSOLE_VERSION__ === 'string' ? __MCP_CONSOLE_VERSION__ : 'dev'
@@ -24,7 +25,7 @@ const CLIENT_VERSION = typeof __MCP_CONSOLE_VERSION__ === 'string' ? __MCP_CONSO
 const fill = (text, values) => text.replace(/\{(\w+)\}/gu, (match, name) => (values[name] === undefined ? match : String(values[name])))
 
 function channelCaller(rpc) {
-  return (endpoint, payload = {}) => rpc.call(CHANNEL, endpoint, payload).then(response => {
+  return (endpoint, payload = {}, signal) => rpc.call(CHANNEL, endpoint, payload, signal).then(response => {
     if (!response?.ok) throw new Error(response?.error?.message ?? 'MCP console request failed')
     return response.value
   })
@@ -164,6 +165,21 @@ function ServerRow({ server, call, t, onChanged }) {
   const [error, setError] = react.useState()
   const [showTools, setShowTools] = react.useState(false)
   const [editing, setEditing] = react.useState()
+  const [confirming, setConfirming] = react.useState(false)
+
+  const remove = () => {
+    setBusy(true)
+    setError(undefined)
+    setNotice(undefined)
+    call('servers/remove', { entryId: server.entryId })
+      .then(result => {
+        setConfirming(false)
+        if (result?.application === 'restart-required') setNotice(t('restartRequired'))
+        return onChanged()
+      })
+      .catch(failure => setError(clearMessage(failure)))
+      .finally(() => setBusy(false))
+  }
 
   const toggle = () => {
     setBusy(true)
@@ -209,6 +225,7 @@ function ServerRow({ server, call, t, onChanged }) {
           {server.toolCount > 0 && <span className="mcpc-meta">{`${server.toolCount} ${t('tools')}`}</span>}
         </span>
         <span className="mcpc-actions">
+          {server.removable && !confirming && <Button variant="danger" disabled={busy} onClick={() => setConfirming(true)}>{t('remove')}</Button>}
           <span className="mcpc-meta">{busy ? t('toggling') : server.enabled ? t('disable') : t('enable')}</span>
           <button
             type="button"
@@ -284,6 +301,15 @@ function ServerRow({ server, call, t, onChanged }) {
             )}
         </dd>
       </dl>
+      {confirming && (
+        <div className="mcpc-callout" data-tone="danger">
+          <span>{fill(t(server.bundle?.mcpRows > 1 ? 'removeConfirmMany' : 'removeConfirm'), { bundle: server.bundle?.name ?? '', count: server.bundle?.mcpRows ?? 1 })}</span>
+          <span className="mcpc-actions">
+            <Button variant="danger" disabled={busy} onClick={remove}>{busy ? t('removing') : t('removeYes')}</Button>
+            <Button variant="ghost" disabled={busy} onClick={() => setConfirming(false)}>{t('repositoryCancel')}</Button>
+          </span>
+        </div>
+      )}
       {server.status === 'starting' && server.toolCount === 0 && <span className="mcpc-meta">{t('startingHint')}</span>}
       {server.error && <pre className="mcpc-detail">{server.error}</pre>}
       {notice && <p className="mcpc-note">{notice}</p>}
@@ -372,7 +398,53 @@ function Group({ title, items, render }) {
   )
 }
 
-function ScanCard({ call, t, openSession, sessionsAvailable, choices, model, setModel }) {
+/** MCP servers configured in other clients, each importable in one step. */
+function ClientServers({ servers, existing, call, t, onImported }) {
+  const [state, setState] = react.useState({})
+  if (servers.length === 0) return null
+  const importOne = item => {
+    const key = `${item.client}\u0000${item.name}`
+    setState(current => ({ ...current, [key]: { busy: true } }))
+    call('servers/import', { client: item.client, name: item.name })
+      .then(result => {
+        setState(current => ({ ...current, [key]: { done: result } }))
+        return onImported()
+      })
+      .catch(failure => setState(current => ({ ...current, [key]: { error: clearMessage(failure) } })))
+  }
+  return (
+    <div className="mcpc-group mcpc-group-wide">
+      <span className="mcpc-label">{`${t('scanClients')} (${servers.length})`}</span>
+      <p className="mcpc-note">{t('importIntro')}</p>
+      <div className="mcpc-list">
+        {servers.map(item => {
+          const key = `${item.client}\u0000${item.name}`
+          const entry = state[key] ?? {}
+          const present = existing.includes(item.name)
+          return (
+            <div className="mcpc-status" key={key}>
+              <b>{item.name}</b>
+              <span className="mcpc-meta">{item.client}</span>
+              <span className="mcpc-meta mcpc-mono">{item.command ? [item.command, ...(item.args ?? [])].join(' ') : item.url ?? ''}</span>
+              <span className="mcpc-actions">
+                {entry.done
+                  ? <span className="mcpc-chip" data-tone="success">{entry.done.application === 'restart-required' ? t('importedRestart') : fill(t('imported'), { name: entry.done.serverName })}</span>
+                  : (
+                    <Button variant={present ? 'ghost' : 'primary'} disabled={entry.busy === true} onClick={() => importOne(item)}>
+                      {entry.busy ? t('importing') : present ? t('importAgain') : t('import')}
+                    </Button>
+                  )}
+              </span>
+              {entry.error && <span className="mcpc-error">{entry.error}</span>}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function ScanCard({ call, t, openSession, sessionsAvailable, choices, model, setModel, existing, onImported }) {
   const [scan, setScan] = react.useState()
   const [busy, setBusy] = react.useState(false)
   const [analyzing, setAnalyzing] = react.useState(false)
@@ -422,8 +494,8 @@ function ScanCard({ call, t, openSession, sessionsAvailable, choices, model, set
               clients: scan.clients.length,
             })}
           </span>
+          <ClientServers servers={clientServers} existing={existing} call={call} t={t} onImported={onImported} />
           <div className="mcpc-columns">
-            <Group title={t('scanClients')} items={clientServers} render={item => `${item.name} · ${item.client}`} />
             <Group title={t('scanApps')} items={scan.apps} render={item => [item.name, item.publisher].filter(Boolean).join(' · ')} />
             <Group title={t('scanServices')} items={scan.services} render={item => item.display ?? item.name} />
             <Group title={t('scanPorts')} items={scan.ports} render={item => `${item.port}${item.process ? ` ← ${item.process}` : ''}`} />
@@ -463,11 +535,29 @@ function ConsolePage({ rpc, t, openSession }) {
 
   react.useEffect(() => {
     void reload()
-    // Connection state changes on its own (reconnects, tools arriving).
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === 'visible') call('status').then(setStatus).catch(() => undefined)
-    }, POLL_MS)
-    return () => window.clearInterval(timer)
+    // Wait for the host to announce a change (tools registered or dropped,
+    // the Plugin Manager changed the profile) instead of polling. A wait
+    // answers at once when the revision moved, or after a bound.
+    const controller = new AbortController()
+    let revision = 0
+    const loop = async () => {
+      while (!controller.signal.aborted) {
+        try {
+          const next = await call('status/wait', { revision }, controller.signal)
+          if (controller.signal.aborted) return
+          if (next.revision !== revision) {
+            revision = next.revision
+            const fresh = await call('status', {}, controller.signal)
+            if (!controller.signal.aborted) setStatus(fresh)
+          }
+        } catch {
+          if (controller.signal.aborted) return
+          await new Promise(resolve => { window.setTimeout(resolve, RETRY_MS) })
+        }
+      }
+    }
+    void loop()
+    return () => controller.abort()
   }, [reload, call])
 
   // The providers and models the picker offers, read once per page visit.
@@ -496,7 +586,7 @@ function ConsolePage({ rpc, t, openSession }) {
         )}
         <ServersCard status={status} loading={loading} error={error} reload={reload} call={call} t={t} />
         <QuickAddCard call={call} t={t} openSession={openSession} sessionsAvailable={sessionsAvailable} {...ai} />
-        <ScanCard call={call} t={t} openSession={openSession} sessionsAvailable={sessionsAvailable} {...ai} />
+        <ScanCard call={call} t={t} openSession={openSession} sessionsAvailable={sessionsAvailable} {...ai} existing={(status?.servers ?? []).map(server => server.name)} onImported={reload} />
       </div>
     </div>
   )

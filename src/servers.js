@@ -18,8 +18,8 @@
  * @module dsh-mcp-console/servers
  */
 
-import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { readFile, rm } from 'node:fs/promises'
+import { isAbsolute, join, relative, resolve } from 'node:path'
 
 import { FIBER_STATE, MAX_TOOLS_PER_SERVER, MCP_MODULE } from './constants.js'
 import { jsExpression, redactConfig } from './redact.js'
@@ -146,7 +146,15 @@ export async function listServers({ loader, tools, pluginManager, profileDir, re
       tools: toolNames.slice(0, MAX_TOOLS_PER_SERVER),
       ...(row.error === undefined ? {} : { error: row.error }),
       ...(repository === undefined ? {} : { repository }),
-      ...(bundle === undefined ? {} : { bundle: { name: bundle.name, ...(bundle.version === undefined ? {} : { version: bundle.version }) } }),
+      ...(bundle === undefined ? {} : {
+        bundle: {
+          name: bundle.name,
+          ...(bundle.version === undefined ? {} : { version: bundle.version }),
+          // How many servers go when the bundle is removed.
+          mcpRows: (bundle.rows ?? []).filter(item => item?.moduleName === MCP_MODULE).length,
+        },
+      }),
+      removable: pluginManager !== undefined && bundle?.removable === true,
       ...(plugin?.readOnlyReason === undefined ? {} : { readOnlyReason: plugin.readOnlyReason }),
       toggleable: pluginManager !== undefined && plugin !== undefined && plugin.readOnlyReason === undefined,
     }
@@ -169,5 +177,58 @@ export async function setServerEnabled(pluginManager, entryId, enabled) {
   return {
     application: typeof result?.application === 'string' ? result.application : 'applied',
     ...(Array.isArray(result?.warnings) && result.warnings.length > 0 ? { warnings: result.warnings.map(String).slice(0, 5) } : {}),
+  }
+}
+
+/** Whether `child` lies strictly inside `parent`. */
+export function isInside(parent, child) {
+  if (typeof parent !== 'string' || typeof child !== 'string' || parent === '' || child === '') return false
+  const rel = relative(resolve(parent), resolve(child))
+  return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel)
+}
+
+/**
+ * The local directory a bundle was installed from, when the profile names one
+ * (`file:` or `link:` dependency), resolved against the profile directory.
+ */
+export async function bundleSourceDir(profileDir, bundleName) {
+  try {
+    const manifest = JSON.parse(await readFile(join(profileDir, 'package.json'), 'utf8'))
+    const spec = manifest?.dependencies?.[bundleName]
+    const match = typeof spec === 'string' ? /^(?:file|link):(.+)$/u.exec(spec) : null
+    if (match === null || match[1].endsWith('.tgz')) return undefined
+    return resolve(profileDir, match[1])
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Remove the bundle a server row comes from, through the Plugin Manager, and
+ * delete its source directory when it lies inside the plugin's own bundle
+ * directory (where AI quick add and import write). Nothing outside it is
+ * ever deleted.
+ * @param options - the Plugin Manager, the row's entry id, the profile
+ *   directory, and the bundle directory.
+ * @returns `{ bundle, application, removedDirectory? }`.
+ */
+export async function deleteServer({ pluginManager, entryId, profileDir, bundleDir }) {
+  if (pluginManager === undefined) throw new Error('MCP console: the Plugin Manager is not available in this profile')
+  const bundles = await pluginManager.listBundles()
+  const bundle = bundles.find(item => (item?.rows ?? []).some(row => row?.entryId === entryId))
+  if (bundle === undefined) throw new Error('MCP console: this server is not provided by a removable bundle; switch it off instead')
+  if (bundle.removable !== true) throw new Error('MCP console: this bundle comes with DSH and cannot be removed; switch it off instead')
+  // Read before removal: pnpm drops the dependency from the manifest.
+  const source = typeof profileDir === 'string' ? await bundleSourceDir(profileDir, bundle.name) : undefined
+  const result = await pluginManager.removeBundle(bundle.name)
+  let removedDirectory
+  if (source !== undefined && isInside(bundleDir, source)) {
+    await rm(source, { recursive: true, force: true })
+    removedDirectory = source
+  }
+  return {
+    bundle: bundle.name,
+    application: typeof result?.application === 'string' ? result.application : 'applied',
+    ...(removedDirectory === undefined ? {} : { removedDirectory }),
   }
 }

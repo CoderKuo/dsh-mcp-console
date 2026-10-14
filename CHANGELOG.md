@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.5
+
+- **Remove**: a server provided by a removable bundle (what AI quick add and import install) has a Remove button with an inline confirmation. It uninstalls the bundle through the Plugin Manager's `removeBundle` and deletes the bundle's source directory only when it lies inside the plugin's bundle directory; nothing elsewhere is deleted. A bundle carrying several servers says so before removing them together.
+- **Import from other clients**: each MCP server found in Claude Desktop, Claude Code, Cursor, Windsurf, VS Code, or Codex has an Import button. The host re-reads that client's own file (the page sends only the client and server names), converts the entry to a `@deepseek-ai/dsh-mcp-client` config (stdio or streamable-http; SSE is refused), writes a configuration-only bundle under the bundle directory with a non-clashing server name, and installs it with `installBundle`. A failed install leaves no directory behind. Environment values and headers are copied as the client stores them.
+- **Event-driven refresh**: the page no longer polls every 5 seconds. It waits on the host, which answers when the tool registry changes (`tools/change`), the Plugin Manager changes the profile (`plugin-manager/changed`), or this plugin acts, and at the latest after 25 seconds.
+
 ## 0.1.4
 
 - The page warns when DSH is still running an older host half of the plugin after an update (the page and the host report their versions), and asks for a full restart.

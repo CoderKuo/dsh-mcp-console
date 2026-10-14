@@ -98,6 +98,7 @@ export const STYLE = `
 .mcpc-status>b{font-weight:600;font-variant-numeric:tabular-nums}
 .mcpc-callout{display:flex;flex-direction:column;gap:10px;padding:12px 14px;border-radius:var(--dsw-radius-md,12px);background:var(--dsw-alias-state-warn-tertiary)}
 .mcpc-callout[data-tone=info]{background:var(--dsw-alias-state-business-tertiary)}
+.mcpc-callout[data-tone=danger]{background:var(--dsw-alias-interactive-bg-hover-danger);color:var(--dsw-alias-label-primary)}
 .mcpc-callout>.mcpc-title{font-size:13px}
 .mcpc-split{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px}
 
@@ -141,4 +142,6 @@ export const STYLE = `
 .mcpc-link{color:var(--dsw-alias-state-business-primary);text-decoration:none;word-break:break-all}
 .mcpc-link:hover{text-decoration:underline}
 .mcpc-select{flex:1 1 180px;height:32px;padding:0 8px;cursor:pointer}
+.mcpc-group-wide{grid-column:1/-1}
+.mcpc-group-wide .mcpc-status{flex-wrap:wrap}
 `
