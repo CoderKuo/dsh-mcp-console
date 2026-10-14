@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.11
+
+- The log rolls over instead of only being trimmed once a day: entries go to segments of at most 1 MB (`YYYY-MM-DD-NNN.log`), and on every write segments older than seven days go and, while the log is over 5 MB, the oldest segment goes. The newest entries are always kept, and a busy day can no longer grow the log past the cap. A single-file day written by 0.1.10 is read as its first segment.
+
 ## 0.1.10
 
 - **Log**: the plugin keeps its own log, since DSH sends a plugin's `ctx.logger` to the console only. One JSON line per entry in `<DSH_HOME>/storages/dsh-mcp-console/logs/YYYY-MM-DD.log`, kept seven days and at most 5 MB in all, also mirrored to `ctx.logger`. Every operation is logged in one place at the RPC layer: what was asked (names, not values: environment variables and headers as names with where the value comes from, URLs without their query, credential arguments masked), how it ended (the Plugin Manager's application, the test's reason and the server's output), how long it took, and the raw failure (message, code, details, the first stack lines) that the page itself only sees as a safe code. Polling and lookups are logged only when they fail. The page reports a version mismatch and any error while drawing a tab.

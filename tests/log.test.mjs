@@ -19,8 +19,8 @@ test('entries go to one file per day as JSON lines, with a copy in memory and on
   log.info('servers/add', { request: { name: 'ctx' } })
   log.error('servers/import', { error: { message: 'pnpm failed' } })
   await log.flush()
-  assert.deepEqual(await readdir(dir), ['2026-10-14.log'])
-  const entries = await lines(join(dir, '2026-10-14.log'))
+  assert.deepEqual(await readdir(dir), ['2026-10-14-001.log'])
+  const entries = await lines(join(dir, '2026-10-14-001.log'))
   assert.deepEqual(entries.map(entry => [entry.level, entry.event]), [['info', 'servers/add'], ['error', 'servers/import']])
   assert.equal(log.recent({ errors: true }).length, 1)
   assert.equal(mirrored.length, 2)
@@ -42,16 +42,50 @@ test('configured values and credential-looking text never reach the log', async 
   assert.equal(log.clean('x'.repeat(5000), Number.POSITIVE_INFINITY).length, 5000)
 })
 
-test('old files and anything beyond the size cap are deleted', async () => {
+test('old days go after seven days and the oldest segments go while the log is over the cap', async () => {
   const dir = await tempDir()
   await writeFile(join(dir, '2026-10-01.log'), 'old\n')
   await writeFile(join(dir, '2026-10-12.log'), 'x'.repeat(600))
-  await writeFile(join(dir, '2026-10-13.log'), 'y'.repeat(600))
+  await writeFile(join(dir, '2026-10-13-001.log'), 'y'.repeat(600))
   await writeFile(join(dir, 'notes.txt'), 'not a log')
   const log = createLog({ directory: () => dir, now: () => new Date('2026-10-14T08:00:00Z'), maxBytes: 1000 })
   log.info('plugin/start', {})
   await log.flush()
-  assert.deepEqual((await readdir(dir)).sort(), ['2026-10-13.log', '2026-10-14.log', 'notes.txt'])
+  assert.deepEqual((await readdir(dir)).sort(), ['2026-10-13-001.log', '2026-10-14-001.log', 'notes.txt'])
+})
+
+test('a busy day rolls over: new segments are written and the oldest are dropped, keeping the newest entries', async () => {
+  const dir = await tempDir()
+  const log = createLog({ directory: () => dir, now: () => new Date('2026-10-14T08:00:00Z'), maxBytes: 1000, segmentBytes: 300 })
+  for (let i = 0; i < 60; i += 1) log.info('servers/toggle', { n: i })
+  await log.flush()
+  const names = (await readdir(dir)).sort()
+  assert.ok(names.length >= 2, 'more than one segment')
+  assert.ok(names.every(name => /^2026-10-14-\d{3}\.log$/u.test(name)))
+  assert.equal(names.includes('2026-10-14-001.log'), false, 'the first segment rolled away')
+  let total = 0
+  const kept = []
+  for (const name of names) {
+    const text = await readFile(join(dir, name), 'utf8')
+    total += Buffer.byteLength(text)
+    kept.push(...text.trim().split('\n').map(line => JSON.parse(line).n))
+  }
+  assert.ok(total <= 1000, `the log stays under the cap (${total} bytes)`)
+  assert.equal(kept.at(-1), 59, 'the newest entry is kept')
+  assert.deepEqual(kept, [...kept].sort((a, b) => a - b), 'entries stay in order')
+  assert.equal(log.file(), join(dir, names.at(-1)), 'the current segment is the newest file')
+})
+
+test('a new day starts a new first segment', async () => {
+  const dir = await tempDir()
+  let clock = new Date('2026-10-14T23:59:00Z')
+  const log = createLog({ directory: () => dir, now: () => clock })
+  log.info('a', {})
+  await log.flush()
+  clock = new Date('2026-10-15T00:01:00Z')
+  log.info('b', {})
+  await log.flush()
+  assert.deepEqual((await readdir(dir)).sort(), ['2026-10-14-001.log', '2026-10-15-001.log'])
 })
 
 test('request summaries carry names and safe shapes, never values', () => {
