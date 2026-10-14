@@ -17,6 +17,9 @@ const NS = 'mcpConsole'
 const CHANNEL = '/mcp-console'
 const PANEL_ID = 'mcp-console'
 const POLL_MS = 5_000
+/* global __MCP_CONSOLE_VERSION__ */
+/** This page's build; compared with the host's to catch a DSH that was not restarted after an update. */
+const CLIENT_VERSION = typeof __MCP_CONSOLE_VERSION__ === 'string' ? __MCP_CONSOLE_VERSION__ : 'dev'
 
 const fill = (text, values) => text.replace(/\{(\w+)\}/gu, (match, name) => (values[name] === undefined ? match : String(values[name])))
 
@@ -107,9 +110,16 @@ function useModelChoice(choices) {
 
 /** Provider and model selects, like the model picker's two levels. */
 function ModelPicker({ choices, value, onChange, disabled, t }) {
-  if (choices === undefined) return <span className="mcpc-meta">{t('modelLoading')}</span>
-  const providers = choices.providers.filter(provider => provider.models.length > 0)
-  if (providers.length === 0) return <span className="mcpc-meta">{t('modelNone')}</span>
+  const providers = choices === undefined ? [] : choices.providers.filter(provider => provider.models.length > 0)
+  if (providers.length === 0) {
+    const reason = choices === undefined ? t('modelLoading') : choices.stale === true ? t('modelStale') : t('modelNone')
+    return (
+      <div className="mcpc-field">
+        <span className="mcpc-label">{t('modelTitle')}</span>
+        <span className="mcpc-meta">{reason}</span>
+      </div>
+    )
+  }
   const provider = providers.find(item => item.id === value?.provider) ?? providers[0]
   const isDefault = value !== undefined && choices.default?.provider === value.provider && choices.default?.model === value.model
   return (
@@ -464,7 +474,10 @@ function ConsolePage({ rpc, t, openSession }) {
   const [choices, setChoices] = react.useState()
   react.useEffect(() => {
     let live = true
-    call('models').then(value => { if (live) setChoices(value) }).catch(() => { if (live) setChoices({ providers: [] }) })
+    call('models').then(value => { if (live) setChoices(value) }).catch(failure => {
+      // A host older than this page does not know the endpoint.
+      if (live) setChoices({ providers: [], stale: /unknown endpoint/u.test(clearMessage(failure)) })
+    })
     return () => { live = false }
   }, [call])
   const [model, setModel] = useModelChoice(choices)
@@ -478,6 +491,9 @@ function ConsolePage({ rpc, t, openSession }) {
           <h2 className="mcpc-h1">{t('title')}</h2>
         </header>
         <p className="mcpc-intro">{t('intro')}</p>
+        {status !== undefined && CLIENT_VERSION !== 'dev' && status.version !== CLIENT_VERSION && (
+          <p className="mcpc-warn" role="alert">{fill(t('restartNeeded'), { page: CLIENT_VERSION, host: status.version ?? '?' })}</p>
+        )}
         <ServersCard status={status} loading={loading} error={error} reload={reload} call={call} t={t} />
         <QuickAddCard call={call} t={t} openSession={openSession} sessionsAvailable={sessionsAvailable} {...ai} />
         <ScanCard call={call} t={t} openSession={openSession} sessionsAvailable={sessionsAvailable} {...ai} />

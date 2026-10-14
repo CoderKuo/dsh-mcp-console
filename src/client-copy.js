@@ -12,6 +12,7 @@ export const zh = {
   refresh: '刷新',
   refreshing: '刷新中…',
   error: '出错了',
+  restartNeeded: 'MCP 管理已更新到 v{page}，但 DSH 后台还在运行旧版本 v{host}。请完全退出 DSH（包括托盘图标）再重新打开，否则部分功能不可用。',
 
   listTitle: '已配置的 MCP',
   listEmpty: '当前 profile 还没有配置 MCP 服务器。可以用下面的「AI 快捷添加」从开源仓库安装一个。',
@@ -80,7 +81,8 @@ export const zh = {
   modelProvider: '供应商',
   modelModel: '模型',
   modelLoading: '正在读取模型列表…',
-  modelNone: '没有可用的模型，会话将使用默认模型。',
+  modelNone: '没有读到可用的模型，会话将使用默认模型。',
+  modelStale: '插件后台还是旧版本，读不到模型列表。请完全退出并重新打开 DSH。',
   modelIsDefault: '这是你的默认模型。只对这次打开的会话生效，不会改动默认设置。',
   modelHint: '只对这次打开的会话生效，不会改动你的默认模型。',
 }
@@ -93,6 +95,7 @@ export const en = {
   refresh: 'Refresh',
   refreshing: 'Refreshing…',
   error: 'Error',
+  restartNeeded: 'MCP Console was updated to v{page}, but the DSH host still runs v{host}. Fully quit DSH (including the tray icon) and reopen it; some features are unavailable until then.',
 
   listTitle: 'Configured MCP servers',
   listEmpty: 'This profile has no MCP server yet. Use AI quick add below to install one from a repository.',
@@ -162,6 +165,7 @@ export const en = {
   modelModel: 'Model',
   modelLoading: 'Loading models…',
   modelNone: 'No model is listed; the session uses the default model.',
+  modelStale: 'The plugin host is still an older version and cannot list models. Fully quit and reopen DSH.',
   modelIsDefault: 'Your default model. It applies to this session only and does not change your default.',
   modelHint: 'Applies to this session only; your default model is not changed.',
 }

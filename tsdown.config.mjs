@@ -1,4 +1,9 @@
+import { readFileSync } from 'node:fs'
+
 import { defineConfig } from 'tsdown'
+
+/** Stamped into both halves so the page can tell a host that was not restarted. */
+const version = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version
 
 const id = 'dsh-mcp-console'
 const hostExternal = [
@@ -23,6 +28,7 @@ export default defineConfig([
     dts: false,
     clean: true,
     deps: { neverBundle: hostExternal },
+    define: { __MCP_CONSOLE_VERSION__: JSON.stringify(version) },
   },
   {
     name: `${id}/client`,
@@ -35,7 +41,7 @@ export default defineConfig([
     sourcemap: true,
     clean: false,
     deps: { neverBundle: clientExternal },
-    define: { 'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production') },
+    define: { 'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production'), __MCP_CONSOLE_VERSION__: JSON.stringify(version) },
     outputOptions: {
       entryFileNames: 'client.js',
       banner: `window.__ModuleLoader__.load({ id: ${JSON.stringify(id)}, factory: (require) => {`,

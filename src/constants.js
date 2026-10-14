@@ -4,6 +4,10 @@
  * @module dsh-mcp-console/constants
  */
 
+/* global __MCP_CONSOLE_VERSION__ */
+/** This build's version; `dev` when running from source (tests). */
+export const PLUGIN_VERSION = typeof __MCP_CONSOLE_VERSION__ === 'string' ? __MCP_CONSOLE_VERSION__ : 'dev'
+
 /** Loader row id, settings namespace, and RPC channel stem. */
 export const PLUGIN_ID = 'mcp-console'
 /** Loopback RPC channel the browser half talks to. */

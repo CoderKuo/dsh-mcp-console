@@ -17,7 +17,7 @@ import { dirname, join } from 'node:path'
 
 import z from '@deepseek-ai/schemastery'
 
-import { CHANNEL, DEFAULT_AGENT_PRESET, DEFAULT_SCAN_TIMEOUT_MS, PLUGIN_ID } from './constants.js'
+import { CHANNEL, DEFAULT_AGENT_PRESET, DEFAULT_SCAN_TIMEOUT_MS, PLUGIN_ID, PLUGIN_VERSION } from './constants.js'
 import { createRunner, inventoryText, scanLocal } from './discovery.js'
 import { listModelChoices } from './models.js'
 import { connectSettings, fieldValue, live } from './preferences.js'
@@ -134,6 +134,7 @@ export function apply(ctx, config) {
       sessions: service('sessionController') !== undefined,
       writable: preference.writable === true,
       bundleDir: bundleDir(),
+      version: PLUGIN_VERSION,
     }),
     toggle: (entryId, enabled) => setServerEnabled(service('pluginManager'), entryId, enabled),
     setRepository: async (rowId, url) => {
