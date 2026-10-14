@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.10
+
+- **Log**: the plugin keeps its own log, since DSH sends a plugin's `ctx.logger` to the console only. One JSON line per entry in `<DSH_HOME>/storages/dsh-mcp-console/logs/YYYY-MM-DD.log`, kept seven days and at most 5 MB in all, also mirrored to `ctx.logger`. Every operation is logged in one place at the RPC layer: what was asked (names, not values: environment variables and headers as names with where the value comes from, URLs without their query, credential arguments masked), how it ended (the Plugin Manager's application, the test's reason and the server's output), how long it took, and the raw failure (message, code, details, the first stack lines) that the page itself only sees as a safe code. Polling and lookups are logged only when they fail. The page reports a version mismatch and any error while drawing a tab.
+- **No secrets in the log**: every literal value a form carries and every value an environment reference resolves to is registered and masked, and bearer values, `key=value` credentials, and token-shaped strings are masked wherever they appear.
+- **Diagnostics**: Installed has a Diagnostics button (also on the empty page) that opens a drawer with a text to copy: plugin (host and page) and DSH versions, system, runtimes, every server's state with its redacted configuration and switch path, and the recent problems from the log. It can reveal the log file in the file manager through the session controller, or shows the path when DSH cannot.
+- A tab that fails to draw shows the error with a Diagnostics button instead of a blank page.
+
 ## 0.1.9
 
 - **Redesigned page**, organised by task instead of one long scroll of cards:

@@ -1,8 +1,14 @@
 import assert from 'node:assert/strict'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir as osTmpdir } from 'node:os'
+import { join } from 'node:path'
 import test from 'node:test'
 
 import { apply, Config } from '../src/index.js'
 import { CHANNEL, FIBER_STATE, MCP_MODULE } from '../src/constants.js'
+
+/** A throwaway DSH_HOME: the plugin writes its log there. */
+const TEST_HOME = mkdtempSync(join(osTmpdir(), 'mcp-console-test-home-'))
 
 /** A host context with just the services the plugin looks up. */
 function fakeHost({ services = {}, settingsWrites = [] } = {}) {
@@ -10,7 +16,8 @@ function fakeHost({ services = {}, settingsWrites = [] } = {}) {
   const effects = []
   const connection = { rpc: { handle: (channel, handler) => { handlers.set(channel, handler); return () => handlers.delete(channel) } } }
   const settings = { writable: true, update: async (rowId, patch) => { settingsWrites.push([rowId, patch]) } }
-  const all = { connection, webServer: {}, settings, ...services }
+  // Every host gets a throwaway DSH_HOME, so the plugin's log never lands in a real one.
+  const all = { connection, webServer: {}, settings, profileContext: { dir: join(TEST_HOME, 'profile'), home: TEST_HOME }, ...services }
   const ctx = {
     fiber: { entry: { options: { id: 'mcp-console' } } },
     logger: { warn: () => undefined },
@@ -45,7 +52,7 @@ test('the plugin registers its channel and serves the page end to end', async ()
         listBundles: async () => [],
         setPluginEnabled: async (id, enabled) => { toggles.push([id, enabled]); return { application: 'applied' } },
       },
-      profileContext: { dir: '/profile', home: '/dsh-home' },
+      profileContext: { dir: '/profile', home: TEST_HOME },
       sessionController: {
         create: async request => { sessionCalls.push(['create', request]); return { sessionId: 'session-9' } },
         rename: async () => ({}),
@@ -62,7 +69,7 @@ test('the plugin registers its channel and serves the page end to end', async ()
   assert.equal(status.value.servers[0].status, 'connected')
   assert.equal(status.value.servers[0].toolCount, 2)
   assert.equal(JSON.stringify(status.value).includes('ghp_secret'), false, 'env values never cross the channel')
-  assert.equal(status.value.bundleDir.replace(/\\/gu, '/'), '/dsh-home/mcp-bundles')
+  assert.equal(status.value.bundleDir, join(TEST_HOME, 'mcp-bundles'))
   assert.equal(status.value.version, 'dev', 'the host reports its build for the restart check')
 
   assert.equal((await host.call('servers/toggle', { entryId: 'include:mcp-github', enabled: false })).ok, true)
@@ -79,6 +86,12 @@ test('the plugin registers its channel and serves the page end to end', async ()
 
   const analyze = await host.call('scan/analyze', { locale: 'zh' })
   assert.equal(analyze.error.message, 'MCP console: scan this computer first')
+
+  const diagnostics = await host.call('diagnostics', { pageVersion: 'dev' })
+  assert.match(diagnostics.value.text, /## servers \(1\)/u)
+  assert.match(diagnostics.value.text, /scan\/analyze: MCP console: scan this computer first/u, 'recent problems come from the log')
+  assert.equal(diagnostics.value.text.includes('ghp_secret'), false)
+  assert.equal(diagnostics.value.logDir, join(TEST_HOME, 'storages', 'dsh-mcp-console', 'logs'))
 })
 
 test('a profile without the Plugin Manager or sessions still serves a read-only page', async () => {

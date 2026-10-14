@@ -227,6 +227,14 @@ export const zh = {
   runtimeAbsent: '{name} 未找到',
   goImport: '去导入',
   aiScanTitle: '让 AI 找出能接入的软件',
+  diagnostics: '诊断信息',
+  diagTitle: '诊断信息',
+  diagIntro: '出问题时把下面的内容复制给开发者：插件和 DSH 版本、运行环境、每个服务器的状态、最近的错误。不含密钥和环境变量的值。',
+  diagCopy: '复制诊断信息',
+  diagOpenFolder: '打开日志文件夹',
+  diagLogAt: '完整日志在 {path}（保留 7 天）',
+  pageErrorTitle: '这个页面出错了',
+  pageErrorRetry: '重试',
 }
 
 export const en = {
@@ -452,4 +460,12 @@ export const en = {
   runtimeAbsent: 'no {name}',
   goImport: 'Import',
   aiScanTitle: 'Let AI find what can be connected',
+  diagnostics: 'Diagnostics',
+  diagTitle: 'Diagnostics',
+  diagIntro: 'When something goes wrong, copy this to the developer: plugin and DSH versions, runtimes, every server’s state, and recent errors. It holds no secrets or environment values.',
+  diagCopy: 'Copy diagnostics',
+  diagOpenFolder: 'Open log folder',
+  diagLogAt: 'Full logs are in {path} (kept 7 days)',
+  pageErrorTitle: 'This page ran into an error',
+  pageErrorRetry: 'Try again',
 }

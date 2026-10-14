@@ -13,7 +13,7 @@
  * @module dsh-mcp-console
  */
 
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { access, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
@@ -21,12 +21,14 @@ import z from '@deepseek-ai/schemastery'
 
 import { CHANNEL, DEFAULT_AGENT_PRESET, DEFAULT_SCAN_TIMEOUT_MS, DEFAULT_TEST_TIMEOUT_MS, MCP_MODULE, PLUGIN_ID, PLUGIN_VERSION, REMOTE_TEST_TIMEOUT_MS } from './constants.js'
 import { createChangeFeed } from './changes.js'
+import { buildDiagnostics } from './diagnostics.js'
+import { configValues, createLog } from './logger.js'
 import { createRunner, inventoryText, scanLocal } from './discovery.js'
 import { parsePatch, readServerForm, updateServer } from './editor.js'
 import { exportServers } from './exporter.js'
 import { importClientServer, installConfigBundle } from './importer.js'
 import { manualConfig } from './manual.js'
-import { checkEnvironment, detectRuntimes, probeServer } from './probe.js'
+import { checkEnvironment, detectRuntimes, probeServer, resolveValue } from './probe.js'
 import { DEFAULT_REGISTRY_URL, searchRegistry } from './registry.js'
 import { listModelChoices } from './models.js'
 import { connectSettings, fieldValue, live } from './preferences.js'
@@ -111,6 +113,15 @@ export function apply(ctx, config) {
    * the changes it shows, so the page refreshes on them instead of polling.
    */
   const changes = createChangeFeed()
+
+  /** The plugin's own log (DSH sends `ctx.logger` to the console only). */
+  const log = createLog({ directory: () => join(dshHome(), 'storages', 'dsh-mcp-console', 'logs'), mirror: ctx.logger })
+  const dshVersion = () => {
+    if (typeof process.env.DSH_APP_VERSION === 'string' && process.env.DSH_APP_VERSION !== '') return process.env.DSH_APP_VERSION
+    return typeof process.env.DSH_CLIENT_VERSION === 'string' ? process.env.DSH_CLIENT_VERSION : undefined
+  }
+  log.info('plugin/start', { version: PLUGIN_VERSION, dsh: dshVersion(), platform: process.platform, arch: process.arch, node: process.version })
+  ctx.effect(() => () => { log.info('plugin/stop', {}) }, 'mcp-console: log')
   ctx.on?.('tools/change', () => changes.bump())
   ctx.on?.('plugin-manager/changed', () => changes.bump())
   ctx.effect(() => () => changes.close(), 'mcp-console: change feed')
@@ -148,7 +159,7 @@ export function apply(ctx, config) {
       await writeFile(temp, JSON.stringify(scan), 'utf8')
       await rename(temp, file)
     } catch (error) {
-      ctx.logger?.warn?.('mcp-console: could not save the scan result: %s', error.message)
+      log.warn('scan/save', { error: { message: error.message, code: error.code } })
     }
   }
   const withSize = scan => (scan === undefined ? null : { ...scan, inventoryChars: inventoryText(scan).length })
@@ -187,16 +198,51 @@ export function apply(ctx, config) {
     headers: (form.headers ?? []).filter(item => item?.expression !== true),
   })
 
+  const listing = () => listServers({
+    loader: service('loader'),
+    tools: service('tools'),
+    pluginManager: service('pluginManager'),
+    profileDir: profile()?.dir,
+    repositories: repositories(),
+    readBundleConfig,
+  })
+
   const handler = createConsoleRpc({
+    log,
+    diagnostics: async ({ pageVersion }) => {
+      const { servers, manageable } = await listing()
+      const text = buildDiagnostics({
+        pluginVersion: PLUGIN_VERSION,
+        pageVersion,
+        dshVersion: dshVersion(),
+        platform: process.platform,
+        arch: process.arch,
+        nodeVersion: process.version,
+        manageable,
+        sessions: service('sessionController') !== undefined,
+        servers,
+        runtimes: runtimeCache?.value,
+        recent: log.recent({ limit: 30, errors: true }),
+        logFile: log.file(),
+        bundleDir: bundleDir(),
+      })
+      return { text: log.clean(text, Number.POSITIVE_INFINITY), logFile: log.file(), logDir: log.directory() }
+    },
+    revealLog: async signal => {
+      const controller = service('sessionController')
+      await log.flush()
+      const file = log.file()
+      const target = await access(file).then(() => file, () => log.directory())
+      if (typeof controller?.openWorkspacePath !== 'function') throw new Error(`MCP console: this DSH cannot open folders; the logs are in ${log.directory()}`)
+      try {
+        await controller.openWorkspacePath({ path: target, action: 'reveal' }, signal ?? new AbortController().signal)
+      } catch {
+        throw new Error(`MCP console: the folder could not be opened; the logs are in ${log.directory()}`)
+      }
+      return { opened: target }
+    },
     status: async () => ({
-      ...(await listServers({
-        loader: service('loader'),
-        tools: service('tools'),
-        pluginManager: service('pluginManager'),
-        profileDir: profile()?.dir,
-        repositories: repositories(),
-        readBundleConfig,
-      })),
+      ...(await listing()),
       sessions: service('sessionController') !== undefined,
       writable: preference.writable === true,
       bundleDir: bundleDir(),
@@ -213,6 +259,13 @@ export function apply(ctx, config) {
     }),
     testServer: (form, signal) => {
       const config = testConfig(form)
+      // What the environment references resolve to never reaches the log either.
+      try {
+        log.mask(Object.values({ ...(config.env ?? {}), ...(config.headers ?? {}) }).map(value => resolveValue(value)))
+      } catch {
+        // A value that cannot be evaluated is reported by the test itself.
+      }
+      log.mask(configValues(config))
       const local = configValue('testTimeoutMs') ?? DEFAULT_TEST_TIMEOUT_MS
       // mcp-remote may wait for an OAuth sign-in in the browser.
       const timeoutMs = config.transport !== 'stdio' ? REMOTE_TEST_TIMEOUT_MS : config.args?.[1] === 'mcp-remote' ? Math.max(local, 120_000) : local

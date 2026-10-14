@@ -97,6 +97,31 @@ const endpoints = {
   'servers/repository': () => ({}),
   'servers/export': () => ({ count: servers.length, json: JSON.stringify({ mcpServers: { context7: { command: 'npx', args: ['-y', '@upstash/context7-mcp@4.4.1'], env: { CONTEXT7_API_KEY: '${CONTEXT7_API_KEY}' } } } }, null, 2) + '\n', notes: ['memory: switched off in DSH'] }),
   'quick-add': () => delay(500, { sessionId: 's1' }),
+  diagnostics: ({ pageVersion }) => ({ logDir: 'C:\Users\me\.dsh\storages\dsh-mcp-console\logs', logFile: 'C:\Users\me\.dsh\storages\dsh-mcp-console\logs\2026-10-14.log', text: `## dsh-mcp-console diagnostics
+time: ${new Date().toISOString()}
+plugin (host): ${window.__version}
+plugin (page): ${pageVersion}
+DSH: 0.2.0-rc.2
+system: win32 x64, node v24.18.1
+plugin manager: available
+sessions: available
+runtimes: node=24.18.1 npx=yes uvx=no docker=28.3.2
+
+## servers (5)
+- ida-pro-mcp: failed · stdio · 0 tools · on · switch:bundle · bundle @local/mcp-ida-pro-mcp@0.1.0
+    C:\Python312\python.exe C:\ida-mcp\server.py --port 13337
+    error: ConnectionRefusedError: [WinError 10061]
+- context7: connected · stdio · 2 tools · on · switch:bundle · bundle @local/mcp-context7@0.1.0
+    npx -y @upstash/context7-mcp@4.4.1
+    env: CONTEXT7_API_KEY(expression)
+
+## recent problems (2)
+- 2026-10-14T13:02:11Z error servers/import [operation-error]: ERR_PNPM_FETCH_404 GET https://registry.npmjs.org/... 404
+    request: {\"client\":\"Cursor\",\"name\":\"playwright\"}
+- 2026-10-14T13:05:40Z warn servers/test: \"uvx\" was not found on the PATH DSH sees
+` }),
+  'diagnostics/reveal': () => { throw new Error('MCP console: the folder could not be opened; the logs are in C:\Users\me\.dsh\storages\dsh-mcp-console\logs') },
+  'log/client': () => ({ logged: true }),
   'scan/analyze': () => delay(500, { sessionId: 's2' }),
 }
 const rpc = { call: async (_channel, endpoint, payload, signal) => {

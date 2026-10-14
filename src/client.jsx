@@ -82,12 +82,7 @@ function ExportDrawer({ call, t, onClose }) {
     call('servers/export').then(value => { if (live) setState(value) }).catch(failure => { if (live) setState({ error: clearMessage(failure) }) })
     return () => { live = false }
   }, [call])
-  const copy = () => {
-    const fallback = () => { area.current?.select(); setCopied(false) }
-    if (navigator.clipboard?.writeText === undefined) return fallback()
-    navigator.clipboard.writeText(state.json).then(() => setCopied(true)).catch(fallback)
-    return undefined
-  }
+  const copy = () => { void copyText(state.json, area.current).then(setCopied) }
   const download = () => {
     const url = URL.createObjectURL(new Blob([state.json], { type: 'application/json' }))
     const link = document.createElement('a')
@@ -121,6 +116,88 @@ function ExportDrawer({ call, t, onClose }) {
   )
 }
 
+/** Copy a text, or select it in its box when the clipboard refuses. */
+function copyText(text, box) {
+  const fallback = () => { box?.select(); return false }
+  if (navigator.clipboard?.writeText === undefined) return Promise.resolve(fallback())
+  return navigator.clipboard.writeText(text).then(() => true, fallback)
+}
+
+/** Diagnostics to paste to whoever helps: versions, servers, recent problems; no secrets. */
+function DiagnosticsDrawer({ call, t, onClose }) {
+  const [state, setState] = react.useState()
+  const [copied, setCopied] = react.useState(false)
+  const [reveal, setReveal] = react.useState()
+  const box = react.useRef(null)
+  react.useEffect(() => {
+    let live = true
+    call('diagnostics', { pageVersion: CLIENT_VERSION }).then(value => { if (live) setState(value) }).catch(failure => { if (live) setState({ error: clearMessage(failure) }) })
+    return () => { live = false }
+  }, [call])
+  const open = () => {
+    setReveal(undefined)
+    call('diagnostics/reveal').then(() => setReveal({ ok: true })).catch(failure => setReveal({ error: clearMessage(failure) }))
+  }
+  return (
+    <Drawer
+      title={t('diagTitle')}
+      onClose={onClose}
+      closeLabel={t('close')}
+      footer={state?.text && (
+        <span className="mcpc-actions">
+          <Button variant="primary" size="md" onClick={() => { void copyText(state.text, box.current).then(setCopied) }}>{copied ? t('exportCopied') : t('diagCopy')}</Button>
+          <Button size="md" onClick={open}>{t('diagOpenFolder')}</Button>
+        </span>
+      )}
+    >
+      {state === undefined && <span className="mcpc-muted">{t('loading')}</span>}
+      {state?.error && <p className="mcpc-note" data-tone="bad">{state.error}</p>}
+      {state?.text && (
+        <>
+          <p className="mcpc-note">{t('diagIntro')}</p>
+          <textarea ref={box} className="mcpc-input" data-mono="true" data-multiline="true" readOnly rows={18} value={state.text} onFocus={event => event.target.select()} />
+          <span className="mcpc-hint">{fill(t('diagLogAt'), { path: state.logDir })}</span>
+          {reveal?.error && <p className="mcpc-note" data-tone="warn">{reveal.error}</p>}
+        </>
+      )}
+    </Drawer>
+  )
+}
+
+/** A failure while drawing a tab: say so, log it, and offer the diagnostics. */
+class TabBoundary extends react.Component {
+  constructor(props) {
+    super(props)
+    this.state = { error: undefined }
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error }
+  }
+
+  componentDidCatch(error, info) {
+    const stack = String(info?.componentStack ?? '').split(/\r?\n/u).map(item => item.trim()).filter(Boolean).slice(0, 4).join(' < ')
+    this.props.call('log/client', { event: 'page-error', detail: `${error?.message ?? error} @ ${stack}` }).catch(() => undefined)
+  }
+
+  render() {
+    const { t, onDiagnostics } = this.props
+    if (this.state.error === undefined) return this.props.children
+    return (
+      <section className="mcpc-panel">
+        <div className="mcpc-empty">
+          <b>{t('pageErrorTitle')}</b>
+          <p className="mcpc-note">{String(this.state.error?.message ?? this.state.error)}</p>
+          <span className="mcpc-actions">
+            <Button variant="primary" size="md" onClick={onDiagnostics}>{t('diagTitle')}</Button>
+            <Button size="md" onClick={() => this.setState({ error: undefined })}>{t('pageErrorRetry')}</Button>
+          </span>
+        </div>
+      </section>
+    )
+  }
+}
+
 function ConsolePage({ rpc, t, openSession }) {
   const call = react.useMemo(() => channelCaller(rpc), [rpc])
   const [status, setStatus] = react.useState()
@@ -130,6 +207,7 @@ function ConsolePage({ rpc, t, openSession }) {
   const [source, setSource] = react.useState()
   const [editing, setEditing] = react.useState()
   const [exporting, setExporting] = react.useState(false)
+  const [diagnosing, setDiagnosing] = react.useState(false)
   const [toast, showToast] = useToast()
   const setTab = next => {
     setTabState(next)
@@ -232,6 +310,12 @@ function ConsolePage({ rpc, t, openSession }) {
     if (next !== undefined) setSource(next)
   }
 
+  // A page newer or older than the host is the first thing to know when something breaks.
+  const mismatch = status !== undefined && CLIENT_VERSION !== 'dev' && status.version !== CLIENT_VERSION
+  react.useEffect(() => {
+    if (mismatch) call('log/client', { event: 'version-mismatch', detail: `page ${CLIENT_VERSION}, host ${status?.version ?? '?'}` }).catch(() => undefined)
+  }, [mismatch]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const servers = status?.servers ?? []
   const failed = servers.filter(server => server.status === 'failed').length
   const existing = servers.map(server => server.name)
@@ -248,7 +332,7 @@ function ConsolePage({ rpc, t, openSession }) {
           <span className="mcpc-sp" />
           <Button variant="primary" size="md" onClick={() => goAdd()}><Icon name="plus" size={14} />{t('addMcp')}</Button>
         </header>
-        {status !== undefined && CLIENT_VERSION !== 'dev' && status.version !== CLIENT_VERSION && (
+        {mismatch && (
           <p className="mcpc-banner" role="alert">{fill(t('restartNeeded'), { page: CLIENT_VERSION, host: status.version ?? '?' })}</p>
         )}
         <nav className="mcpc-tabs" role="tablist" aria-label={t('title')}>
@@ -259,6 +343,7 @@ function ConsolePage({ rpc, t, openSession }) {
             </button>
           ))}
         </nav>
+        <TabBoundary key={tab} call={call} t={t} onDiagnostics={() => setDiagnosing(true)}>
         {tab === 'installed' && (
           <InstalledView
             status={status}
@@ -269,6 +354,7 @@ function ConsolePage({ rpc, t, openSession }) {
             t={t}
             onEdit={editServer}
             onExport={() => setExporting(true)}
+            onDiagnostics={() => setDiagnosing(true)}
             onAdd={() => goAdd()}
             onDiscover={() => setTab('discover')}
           />
@@ -279,6 +365,7 @@ function ConsolePage({ rpc, t, openSession }) {
         {tab === 'discover' && (
           <DiscoverView call={call} t={t} scan={scan} scanning={scanning} scanError={scanError} rescan={rescan} onImport={() => goAdd('import')} ai={ai} />
         )}
+        </TabBoundary>
       </div>
       {editing && (
         <Drawer title={fill(t('editTitle'), { name: editing.server.name })} onClose={() => setEditing(undefined)} closeLabel={t('close')} footer={<span className="mcpc-muted">{t('editIntro')}</span>}>
@@ -286,6 +373,7 @@ function ConsolePage({ rpc, t, openSession }) {
         </Drawer>
       )}
       {exporting && <ExportDrawer call={call} t={t} onClose={() => setExporting(false)} />}
+      {diagnosing && <DiagnosticsDrawer call={call} t={t} onClose={() => setDiagnosing(false)} />}
       {toast && <div className="mcpc-toast" role="status">{toast}</div>}
     </div>
   )

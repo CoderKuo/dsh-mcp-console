@@ -190,7 +190,7 @@ function ServerRow({ server, call, t, onChanged, onEdit, initiallyOpen }) {
   )
 }
 
-export function InstalledView({ status, loading, error, reload, call, t, onEdit, onExport, onAdd, onDiscover }) {
+export function InstalledView({ status, loading, error, reload, call, t, onEdit, onExport, onDiagnostics, onAdd, onDiscover }) {
   const servers = [...(status?.servers ?? [])].sort((a, b) => (ORDER[a.status] ?? 9) - (ORDER[b.status] ?? 9) || a.name.localeCompare(b.name))
   if (status !== undefined && servers.length === 0) {
     return (
@@ -203,6 +203,7 @@ export function InstalledView({ status, loading, error, reload, call, t, onEdit,
             <Button variant="primary" size="md" onClick={onAdd}>{t('emptyAdd')}</Button>
             <Button size="md" onClick={onDiscover}>{t('emptyDiscover')}</Button>
           </span>
+          <button type="button" className="mcpc-textbtn" onClick={onDiagnostics}>{t('diagnostics')}</button>
         </div>
       </Panel>
     )
@@ -215,6 +216,7 @@ export function InstalledView({ status, loading, error, reload, call, t, onEdit,
       aside={(
         <span className="mcpc-actions">
           {servers.length > 0 && <Button variant="ghost" onClick={onExport}>{t('export')}</Button>}
+          <Button variant="ghost" onClick={onDiagnostics}>{t('diagnostics')}</Button>
           <Button variant="ghost" disabled={loading} onClick={() => reload()}>{loading ? t('refreshing') : t('refresh')}</Button>
         </span>
       )}

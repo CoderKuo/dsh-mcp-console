@@ -10,6 +10,7 @@
  */
 
 import { normalizeRepository } from './repository.js'
+import { QUIET, failureFields, formSecrets, summarizeRequest, summarizeResult } from './audit.js'
 import { classifySource } from './sources.js'
 
 const ok = value => ({ ok: true, value })
@@ -45,7 +46,11 @@ export function pickForm(payload) {
   }
 }
 
-export function createConsoleRpc({ status, toggle, remove, importServer, addServer, testServer, serverForm, updateServer, exportServers, checkEnv, runtimes, searchRegistry, wait, setRepository, models, quickAdd, scan, lastScan, analyze }) {
+/** Page events the log accepts, and how many per minute. */
+const CLIENT_EVENTS = new Set(['version-mismatch', 'page-error'])
+const CLIENT_EVENTS_PER_MINUTE = 20
+
+export function createConsoleRpc({ log, diagnostics, revealLog, status, toggle, remove, importServer, addServer, testServer, serverForm, updateServer, exportServers, checkEnv, runtimes, searchRegistry, wait, setRepository, models, quickAdd, scan, lastScan, analyze }) {
   const endpoints = {
     status: () => status(),
     'servers/toggle': payload => toggle(String(payload?.entryId ?? ''), payload?.enabled === true),
@@ -60,6 +65,17 @@ export function createConsoleRpc({ status, toggle, remove, importServer, addServ
     'servers/export': () => exportServers(),
     'env/check': payload => checkEnv(Array.isArray(payload?.names) ? payload.names.filter(name => typeof name === 'string') : []),
     runtimes: payload => runtimes(payload?.refresh === true),
+    diagnostics: payload => (typeof diagnostics === 'function' ? diagnostics({ pageVersion: typeof payload?.pageVersion === 'string' ? payload.pageVersion.slice(0, 40) : undefined }) : { text: '' }),
+    'diagnostics/reveal': (_payload, signal) => revealLog(signal),
+    'log/client': payload => {
+      const event = String(payload?.event ?? '')
+      if (!CLIENT_EVENTS.has(event)) throw new Error('MCP console: unknown page event')
+      const minute = Math.floor(Date.now() / 60_000)
+      if (clientEvents.minute !== minute) { clientEvents.minute = minute; clientEvents.count = 0 }
+      clientEvents.count += 1
+      if (clientEvents.count <= CLIENT_EVENTS_PER_MINUTE) log?.warn(`page/${event}`, { detail: String(payload?.detail ?? '').slice(0, 2000) })
+      return { logged: clientEvents.count <= CLIENT_EVENTS_PER_MINUTE }
+    },
     'registry/search': (payload, signal) => searchRegistry({ query: typeof payload?.query === 'string' ? payload.query : '', cursor: typeof payload?.cursor === 'string' ? payload.cursor : undefined }, signal),
     'quick-add': (payload, signal) => quickAdd({
       source: classifySource(typeof payload?.source === 'string' ? payload.source : payload?.repositoryUrl),
@@ -72,12 +88,25 @@ export function createConsoleRpc({ status, toggle, remove, importServer, addServ
     'scan/last': () => (typeof lastScan === 'function' ? lastScan() : null),
     'scan/analyze': (payload, signal) => analyze({ locale: payload?.locale === 'en' ? 'en' : 'zh', model: payload?.model }, signal),
   }
+  const clientEvents = { minute: 0, count: 0 }
   return async (endpoint, payload, signal) => {
+    const startedAt = Date.now()
+    const quiet = QUIET.has(endpoint)
     try {
       const handle = Object.hasOwn(endpoints, endpoint) ? endpoints[endpoint] : undefined
       if (handle === undefined) return failed('MCP console: unknown endpoint')
-      return ok(await handle(payload, signal))
+      // Literal values a form carries never reach the log, whatever happens next.
+      if (log !== undefined) log.mask(formSecrets(payload))
+      const value = await handle(payload, signal)
+      if (log !== undefined && !quiet) {
+        const failedTest = endpoint === 'servers/test' && value?.ok === false
+        log.write(failedTest ? 'warn' : 'info', endpoint, { request: summarizeRequest(endpoint, payload), result: summarizeResult(endpoint, value), ms: Date.now() - startedAt })
+      }
+      return ok(value)
     } catch (error) {
+      if (log !== undefined && !(signal?.aborted && endpoint === 'status/wait')) {
+        log.error(endpoint, { request: summarizeRequest(endpoint, payload), error: failureFields(error), ms: Date.now() - startedAt })
+      }
       const message = error instanceof Error ? error.message : String(error)
       const code = typeof error?.code === 'string' ? error.code : ''
       if (SAFE_MESSAGE.test(message)) return failed(message)
