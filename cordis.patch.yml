@@ -1,0 +1,6 @@
+# Register the MCP console. It manages the profile's existing
+# @deepseek-ai/dsh-mcp-client rows through the Plugin Manager and opens
+# ordinary Sessions for AI-assisted installation; it inserts no MCP rows itself.
+- insert:
+    - id: mcp-console
+      name: 'dsh-mcp-console'

@@ -1,0 +1,5 @@
+node_modules/
+.artifacts/
+*.tgz
+.DS_Store
+lib/client.js.map

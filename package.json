@@ -1,0 +1,84 @@
+{
+  "name": "dsh-mcp-console",
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.32.1",
+  "description": "Manage the MCP servers of a DeepSeek Harness profile: see their status, switch them on and off, add one from a GitHub repository with AI, and find local software that can be connected",
+  "type": "module",
+  "main": "./lib/index.js",
+  "icon": "./icon.webp",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "icon.webp",
+    "lib/*.js",
+    "cordis.patch.yml",
+    "README.md",
+    "README.en.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-workspace"
+      ],
+      "platform": "web"
+    }
+  },
+  "scripts": {
+    "build": "tsdown --config tsdown.config.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "check": "pnpm run test && pnpm run build && pnpm pack --pack-destination .artifacts"
+  },
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "mcp",
+    "model-context-protocol",
+    "mcp-manager"
+  ],
+  "author": "CoderKuo",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CoderKuo/dsh-mcp-console.git"
+  },
+  "bugs": {
+    "url": "https://github.com/CoderKuo/dsh-mcp-console/issues"
+  },
+  "homepage": "https://github.com/CoderKuo/dsh-mcp-console#readme",
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.1 || 4.0.2 || 4.0.3 || 4.0.4",
+    "@deepseek-ai/dsh-client-connection": ">=0.1.5-rc.1 <0.3.0-0",
+    "@deepseek-ai/dsh-client-locale": ">=0.1.5-rc.1 <0.3.0-0",
+    "@deepseek-ai/dsh-client-ui-layout": ">=0.2.0-rc.1 <0.3.0-0",
+    "@deepseek-ai/dsh-client-ui-sidebar": ">=0.2.0-rc.1 <0.3.0-0",
+    "@deepseek-ai/dsh-client-ui-workspace": ">=0.2.0-rc.1 <0.3.0-0",
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "react": "^18.2.0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.2",
+    "@deepseek-ai/schemastery": "3.18.4",
+    "react": "18.3.1",
+    "tsdown": "0.22.2",
+    "yaml": "2.9.1"
+  }
+}

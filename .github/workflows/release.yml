@@ -1,0 +1,86 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  # npm trusted publishing (OIDC): no npm token is stored anywhere.
+  id-token: write
+
+jobs:
+  release:
+    name: Build and attach the package
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.20.0
+          cache: pnpm
+      - name: Require an npm CLI that supports trusted publishing
+        run: |
+          node <<'EOF'
+          const { execSync } = require('node:child_process')
+          const version = () => execSync('npm --version', { encoding: 'utf8' }).trim()
+          const supports = value => {
+            const [major, minor, patch] = value.split('.').map(Number)
+            return major > 11 || (major === 11 && (minor > 5 || (minor === 5 && patch >= 1)))
+          }
+          if (!supports(version())) execSync('npm install -g npm@11', { stdio: 'inherit' })
+          if (!supports(version())) {
+            console.error(`npm ${version()} cannot publish with a trusted publisher`)
+            process.exit(1)
+          }
+          console.log(`npm ${version()}`)
+          EOF
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Refuse a tag that does not match package.json
+        run: |
+          node <<'EOF'
+          const version = require('./package.json').version
+          const tag = process.env.GITHUB_REF_NAME.replace(/^v/, '')
+          if (version !== tag) {
+            console.error(`tag v${tag} does not match package.json ${version}`)
+            process.exit(1)
+          }
+          EOF
+      - name: Test, build, and pack
+        run: pnpm run check
+      - name: Refuse a stale lib/ build
+        run: git diff --exit-code -- lib/
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ASSET=".artifacts/dsh-mcp-console-${VERSION}.tgz"
+          test -f "$ASSET"
+          # An unversioned copy gives a stable install address:
+          # https://github.com/CoderKuo/dsh-mcp-console/releases/latest/download/dsh-mcp-console.tgz
+          cp "$ASSET" .artifacts/dsh-mcp-console.tgz
+          NOTES="$(awk -v v="## ${VERSION}" '$0==v{f=1;next} /^## /{f=0} f' CHANGELOG.md)"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$ASSET" .artifacts/dsh-mcp-console.tgz --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "$ASSET" .artifacts/dsh-mcp-console.tgz --title "dsh-mcp-console v${VERSION}" --notes "$NOTES"
+          fi
+      - name: Publish the same tarball to npm
+        # Trusted publishing: npm exchanges this job's OIDC token, so no
+        # NODE_AUTH_TOKEN and no setup-node registry-url (either would switch
+        # npm to token auth and skip OIDC). Re-running a tag that is already
+        # on npm is a no-op.
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if npm view "dsh-mcp-console@${VERSION}" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
+            echo "dsh-mcp-console@${VERSION} is already on npm"
+          else
+            npm publish ".artifacts/dsh-mcp-console-${VERSION}.tgz" --access public --registry=https://registry.npmjs.org
+          fi
