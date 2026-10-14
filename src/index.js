@@ -4,9 +4,11 @@
  * The plugin reads the profile's `@deepseek-ai/dsh-mcp-client` rows and their
  * observable state, switches rows on and off through the Plugin Manager, and
  * opens ordinary Sessions for the two AI-assisted flows: installing an MCP
- * server from a repository, and researching what local software could be
- * connected. It never inserts MCP rows itself; an agent does that by
- * installing a configuration-only bundle with the person's approval.
+ * server from a repository, package, image, or page, and researching what
+ * local software could be connected. It never edits the profile's own patch:
+ * every server it adds (imported, added by hand, or installed by an agent
+ * with the person's approval) arrives as a configuration-only bundle
+ * installed through the Plugin Manager.
  *
  * @module dsh-mcp-console
  */
@@ -20,7 +22,8 @@ import z from '@deepseek-ai/schemastery'
 import { CHANNEL, DEFAULT_AGENT_PRESET, DEFAULT_SCAN_TIMEOUT_MS, PLUGIN_ID, PLUGIN_VERSION } from './constants.js'
 import { createChangeFeed } from './changes.js'
 import { createRunner, inventoryText, scanLocal } from './discovery.js'
-import { importClientServer } from './importer.js'
+import { importClientServer, installConfigBundle } from './importer.js'
+import { manualConfig } from './manual.js'
 import { listModelChoices } from './models.js'
 import { connectSettings, fieldValue, live } from './preferences.js'
 import { discoveryPrompt, quickAddPrompt } from './prompts.js'
@@ -159,6 +162,11 @@ export function apply(ctx, config) {
     toggle: (entryId, enabled) => changing(() => setServerEnabled(service('pluginManager'), entryId, enabled)),
     remove: entryId => changing(() => deleteServer({ pluginManager: service('pluginManager'), entryId, profileDir: profile()?.dir, bundleDir: bundleDir() })),
     importServer: ({ client, name }) => changing(() => importClientServer({ pluginManager: service('pluginManager'), client, name, existingNames: existingNames(), bundleDir: bundleDir() })),
+    addServer: request => changing(() => {
+      const config = manualConfig(request, existingNames())
+      const what = config.transport === 'stdio' ? config.command : config.url
+      return installConfigBundle({ pluginManager: service('pluginManager'), config, bundleDir: bundleDir(), description: `MCP server "${config.serverName}" (${what}) added by hand`, origin: 'Added by hand' })
+    }),
     wait: ({ revision }, signal) => changes.wait(revision, { signal }),
     setRepository: async (rowId, url) => {
       if (rowId === '') throw new Error('MCP console: unknown server')
@@ -172,15 +180,12 @@ export function apply(ctx, config) {
       return { rowId, ...(normalized === undefined ? {} : { repository: normalized }) }
     },
     models: () => listModelChoices({ llm: service('llm'), agentDefaultModel: service('agentDefaultModel') }),
-    quickAdd: ({ repositoryUrl, notes, locale, model }, signal) => {
-      const short = repositoryUrl.replace(/^https:\/\/(?:www\.)?github\.com\//u, '')
-      return openSession(
-        locale === 'en' ? `Install MCP: ${short}` : `安装 MCP：${short}`,
-        quickAddPrompt({ repositoryUrl, notes, existingNames: existingNames(), bundleDir: bundleDir(), locale }),
-        signal,
-        model,
-      )
-    },
+    quickAdd: ({ source, notes, locale, model }, signal) => openSession(
+      locale === 'en' ? `Install MCP: ${source.label}` : `安装 MCP：${source.label}`,
+      quickAddPrompt({ source, notes, existingNames: existingNames(), bundleDir: bundleDir(), locale }),
+      signal,
+      model,
+    ),
     scan: async signal => {
       const run = createRunner(service('subprocess'), { timeoutMs: config?.scanTimeoutMs ?? DEFAULT_SCAN_TIMEOUT_MS })
       signal?.throwIfAborted?.()
@@ -220,6 +225,8 @@ export { discoveryPrompt, quickAddPrompt } from './prompts.js'
 export { MASK, redactArgs, redactConfig, redactMap } from './redact.js'
 export { bundleSourceDir, deleteServer, isInside, listServers, normalizeRepository, readMcpRows, serverStatus, setServerEnabled, toolPrefix, toolsByServer } from './servers.js'
 export { createChangeFeed } from './changes.js'
-export { bundleFiles, importClientServer, readClientServer, serverNameFor, toMcpClientConfig } from './importer.js'
+export { bundleFiles, flowYaml, importClientServer, installConfigBundle, readClientServer, serverNameFor, toMcpClientConfig } from './importer.js'
+export { environmentExpression, manualConfig, splitCommandLine } from './manual.js'
+export { classifySource } from './sources.js'
 export { listModelChoices } from './models.js'
 export { openPromptSession, pickedModel, resolveDefaultWorkspace, selectSessionModel } from './sessions.js'

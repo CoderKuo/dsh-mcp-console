@@ -13,6 +13,7 @@ import * as react from 'react'
 import { en, zh } from './client-copy.js'
 import { STYLE } from './client-style.js'
 import { groupClientServers, launchLine } from './client-groups.js'
+import { classifySource } from './sources.js'
 
 const NS = 'mcpConsole'
 const CHANNEL = '/mcp-console'
@@ -340,22 +341,33 @@ function ServersCard({ status, loading, error, reload, call, t }) {
 
 // ── AI quick add ────────────────────────────────────────────────────────────
 
+/** What the quick-add field was recognised as, or undefined while it is not a source. */
+function recognised(text) {
+  if (text.trim() === '') return undefined
+  try {
+    return classifySource(text)
+  } catch {
+    return null
+  }
+}
+
 function QuickAddCard({ call, t, openSession, sessionsAvailable, choices, model, setModel }) {
-  const [url, setUrl] = react.useState('')
+  const [source, setSource] = react.useState('')
   const [notes, setNotes] = react.useState('')
   const [busy, setBusy] = react.useState(false)
   const [done, setDone] = react.useState(false)
   const [error, setError] = react.useState()
+  const kind = recognised(source)
 
   const start = event => {
     event.preventDefault()
     setBusy(true)
     setError(undefined)
     setDone(false)
-    call('quick-add', { repositoryUrl: url, notes, locale: t('lang'), ...(model === undefined ? {} : { model }) })
+    call('quick-add', { source, notes, locale: t('lang'), ...(model === undefined ? {} : { model }) })
       .then(result => {
         setDone(true)
-        setUrl('')
+        setSource('')
         setNotes('')
         openSession(result.sessionId)
       })
@@ -368,8 +380,16 @@ function QuickAddCard({ call, t, openSession, sessionsAvailable, choices, model,
       <p className="mcpc-note">{t('addIntro')}</p>
       <form className="mcpc-add" onSubmit={start}>
         <label className="mcpc-field">
-          <span className="mcpc-label">{t('addUrl')}</span>
-          <input className="mcpc-input" type="url" required placeholder={t('repositoryPlaceholder')} value={url} onChange={event => setUrl(event.target.value)} />
+          <span className="mcpc-label">{t('addSource')}</span>
+          <input className="mcpc-input" type="text" required spellCheck={false} placeholder={t('addSourcePlaceholder')} value={source} onChange={event => setSource(event.target.value)} />
+          {kind === undefined && <span className="mcpc-meta">{t('addSourceHint')}</span>}
+          {kind === null && <span className="mcpc-warn">{t('addSourceUnknown')}</span>}
+          {kind && (
+            <span className="mcpc-recognised">
+              <span className="mcpc-chip" data-tone="info">{t(`kind_${kind.kind}`)}</span>
+              <span className="mcpc-mono">{kind.label}</span>
+            </span>
+          )}
         </label>
         <label className="mcpc-field">
           <span className="mcpc-label">{t('addNotes')}</span>
@@ -377,11 +397,138 @@ function QuickAddCard({ call, t, openSession, sessionsAvailable, choices, model,
         </label>
         <ModelPicker choices={choices} value={model} onChange={setModel} disabled={busy} t={t} />
         <div className="mcpc-split">
-          <Button type="submit" variant="primary" size="md" disabled={busy || url.trim() === '' || !sessionsAvailable}>{busy ? t('addStarting') : t('addStart')}</Button>
+          <Button type="submit" variant="primary" size="md" disabled={busy || !kind || !sessionsAvailable}>{busy ? t('addStarting') : t('addStart')}</Button>
         </div>
       </form>
       {!sessionsAvailable && <p className="mcpc-note">{t('noSessions')}</p>}
       {done && <p className="mcpc-note">{t('addOpened')}</p>}
+      {error && <p className="mcpc-error" role="alert">{`${t('error')}: ${error}`}</p>}
+    </Card>
+  )
+}
+
+// ── manual add ──────────────────────────────────────────────────────────────
+
+const emptyPair = () => ({ name: '', value: '', fromEnv: false })
+/** A name whose literal value is masked while typing. */
+const SECRET_NAME = /key|token|secret|password|passwd|auth|credential|cookie|bearer/iu
+
+/** Name/value rows (environment variables or headers); a row may read its value from the environment. */
+function PairsEditor({ label, pairs, onChange, namePlaceholder, valuePlaceholder, disabled, t }) {
+  const update = (index, patch) => onChange(pairs.map((pair, i) => (i === index ? { ...pair, ...patch } : pair)))
+  return (
+    <div className="mcpc-field">
+      <span className="mcpc-label">{label}</span>
+      {pairs.map((pair, index) => (
+        <div key={index} className="mcpc-pair">
+          <input className="mcpc-input mcpc-pair-name" spellCheck={false} disabled={disabled} placeholder={namePlaceholder} value={pair.name} onChange={event => update(index, { name: event.target.value })} />
+          <input
+            className="mcpc-input"
+            spellCheck={false}
+            disabled={disabled}
+            type={!pair.fromEnv && SECRET_NAME.test(pair.name) ? 'password' : 'text'}
+            autoComplete="off"
+            placeholder={pair.fromEnv ? t('manualEnvPlaceholder') : valuePlaceholder}
+            value={pair.value}
+            onChange={event => update(index, { value: event.target.value })}
+          />
+          <label className="mcpc-check" title={t('manualFromEnvHint')}>
+            <input type="checkbox" disabled={disabled} checked={pair.fromEnv} onChange={event => update(index, { fromEnv: event.target.checked })} />
+            <span>{t('manualFromEnv')}</span>
+          </label>
+          <Button variant="ghost" disabled={disabled} aria-label={t('manualRemoveRow')} onClick={() => onChange(pairs.filter((_, i) => i !== index))}>×</Button>
+        </div>
+      ))}
+      <span>
+        <Button variant="ghost" disabled={disabled} onClick={() => onChange([...pairs, emptyPair()])}>{t('manualAddRow')}</Button>
+      </span>
+    </div>
+  )
+}
+
+const INITIAL_MANUAL = { name: '', transport: 'stdio', commandLine: '', cwd: '', env: [], url: '', headers: [] }
+
+/** A server name suggested from the command or URL, for an empty name field. */
+function suggestedName(form) {
+  try {
+    if (form.transport === 'streamable-http') return new URL(form.url).hostname.split('.').filter(part => !/^(?:www|mcp|api)$/u.test(part))[0]?.slice(0, 32) ?? ''
+    const source = classifySource(form.commandLine)
+    const base = source.label.replace(/^.*\//u, '').replace(/[@:].*$/u, '').replace(/^(?:mcp-server-|server-)/u, '').replace(/-mcp(?:-server)?$/u, '')
+    return base.replace(/[^A-Za-z0-9_-]+/gu, '-').slice(0, 32)
+  } catch {
+    return ''
+  }
+}
+
+function ManualAddCard({ call, t, onAdded }) {
+  const [form, setForm] = react.useState(INITIAL_MANUAL)
+  const [busy, setBusy] = react.useState(false)
+  const [done, setDone] = react.useState()
+  const [error, setError] = react.useState()
+  const set = patch => setForm(current => ({ ...current, ...patch }))
+  const remote = form.transport === 'streamable-http'
+  const suggestion = suggestedName(form)
+  const name = form.name.trim() === '' ? suggestion : form.name.trim()
+  const ready = name !== '' && (remote ? form.url.trim() !== '' : form.commandLine.trim() !== '')
+
+  const submit = event => {
+    event.preventDefault()
+    setBusy(true)
+    setError(undefined)
+    setDone(undefined)
+    call('servers/add', { ...form, name })
+      .then(result => {
+        setDone(result)
+        setForm(INITIAL_MANUAL)
+        return onAdded()
+      })
+      .catch(failure => setError(clearMessage(failure)))
+      .finally(() => setBusy(false))
+  }
+
+  return (
+    <Card title={t('manualTitle')}>
+      <p className="mcpc-note">{t('manualIntro')}</p>
+      <form className="mcpc-add" onSubmit={submit}>
+        <div className="mcpc-seg" role="radiogroup" aria-label={t('manualKind')}>
+          <button type="button" role="radio" aria-checked={!remote} disabled={busy} onClick={() => set({ transport: 'stdio' })}>{t('manualStdio')}</button>
+          <button type="button" role="radio" aria-checked={remote} disabled={busy} onClick={() => set({ transport: 'streamable-http' })}>{t('manualHttp')}</button>
+        </div>
+        <label className="mcpc-field">
+          <span className="mcpc-label">{t('manualName')}</span>
+          <input className="mcpc-input" spellCheck={false} disabled={busy} maxLength={32} placeholder={suggestion === '' ? t('manualNamePlaceholder') : suggestion} value={form.name} onChange={event => set({ name: event.target.value })} />
+        </label>
+        {remote
+          ? (
+            <>
+              <label className="mcpc-field">
+                <span className="mcpc-label">{t('manualUrl')}</span>
+                <input className="mcpc-input mcpc-mono" type="url" spellCheck={false} disabled={busy} placeholder="https://mcp.example.com/mcp" value={form.url} onChange={event => set({ url: event.target.value })} />
+                <span className="mcpc-meta">{t('manualUrlHint')}</span>
+              </label>
+              <PairsEditor label={t('headers')} pairs={form.headers} onChange={headers => set({ headers })} namePlaceholder="Authorization" valuePlaceholder={t('manualValuePlaceholder')} disabled={busy} t={t} />
+            </>
+          )
+          : (
+            <>
+              <label className="mcpc-field">
+                <span className="mcpc-label">{t('manualCommand')}</span>
+                <input className="mcpc-input mcpc-mono" spellCheck={false} disabled={busy} placeholder="npx -y @upstash/context7-mcp" value={form.commandLine} onChange={event => set({ commandLine: event.target.value })} />
+                <span className="mcpc-meta">{t('manualCommandHint')}</span>
+              </label>
+              <PairsEditor label={t('env')} pairs={form.env} onChange={env => set({ env })} namePlaceholder="API_KEY" valuePlaceholder={t('manualValuePlaceholder')} disabled={busy} t={t} />
+              <label className="mcpc-field">
+                <span className="mcpc-label">{t('manualCwd')}</span>
+                <input className="mcpc-input mcpc-mono" spellCheck={false} disabled={busy} placeholder={t('manualCwdPlaceholder')} value={form.cwd} onChange={event => set({ cwd: event.target.value })} />
+              </label>
+            </>
+          )}
+        <p className="mcpc-note">{t('manualSecrets')}</p>
+        <div className="mcpc-split">
+          <Button type="submit" variant="primary" size="md" disabled={busy || !ready}>{busy ? t('manualAdding') : t('manualAdd')}</Button>
+        </div>
+      </form>
+      {done && <p className="mcpc-note">{done.application === 'restart-required' ? t('importedRestart') : fill(t('manualAdded'), { name: done.serverName })}</p>}
       {error && <p className="mcpc-error" role="alert">{`${t('error')}: ${error}`}</p>}
     </Card>
   )
@@ -596,6 +743,7 @@ function ConsolePage({ rpc, t, openSession }) {
         )}
         <ServersCard status={status} loading={loading} error={error} reload={reload} call={call} t={t} />
         <QuickAddCard call={call} t={t} openSession={openSession} sessionsAvailable={sessionsAvailable} {...ai} />
+        <ManualAddCard call={call} t={t} onAdded={reload} />
         <ScanCard call={call} t={t} openSession={openSession} sessionsAvailable={sessionsAvailable} {...ai} existing={(status?.servers ?? []).map(server => server.name)} onImported={reload} />
       </div>
     </div>

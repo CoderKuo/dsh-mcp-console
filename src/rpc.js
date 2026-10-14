@@ -9,7 +9,8 @@
  * @module dsh-mcp-console/rpc
  */
 
-import { normalizeRepository } from './servers.js'
+import { normalizeRepository } from './repository.js'
+import { classifySource } from './sources.js'
 
 const ok = value => ({ ok: true, value })
 // Connection 0.2 validates all three error fields, even on plugin channels.
@@ -30,7 +31,7 @@ export function acceptRepositoryUrl(value) {
  * @param options - the operations the page may call.
  * @returns a handler for `connection.rpc.handle(CHANNEL, handler)`.
  */
-export function createConsoleRpc({ status, toggle, remove, importServer, wait, setRepository, models, quickAdd, scan, lastScan, analyze }) {
+export function createConsoleRpc({ status, toggle, remove, importServer, addServer, wait, setRepository, models, quickAdd, scan, lastScan, analyze }) {
   const endpoints = {
     status: () => status(),
     'servers/toggle': payload => toggle(String(payload?.entryId ?? ''), payload?.enabled === true),
@@ -38,8 +39,17 @@ export function createConsoleRpc({ status, toggle, remove, importServer, wait, s
     'servers/import': payload => importServer({ client: String(payload?.client ?? ''), name: String(payload?.name ?? '') }),
     'status/wait': (payload, signal) => wait({ revision: Number(payload?.revision) }, signal),
     'servers/repository': payload => setRepository(String(payload?.rowId ?? ''), typeof payload?.url === 'string' ? payload.url : ''),
+    'servers/add': payload => addServer({
+      name: payload?.name,
+      transport: payload?.transport,
+      commandLine: payload?.commandLine,
+      cwd: payload?.cwd,
+      env: payload?.env,
+      url: payload?.url,
+      headers: payload?.headers,
+    }),
     'quick-add': (payload, signal) => quickAdd({
-      repositoryUrl: acceptRepositoryUrl(payload?.repositoryUrl),
+      source: classifySource(typeof payload?.source === 'string' ? payload.source : payload?.repositoryUrl),
       notes: typeof payload?.notes === 'string' ? payload.notes : '',
       locale: payload?.locale === 'en' ? 'en' : 'zh',
       model: payload?.model,

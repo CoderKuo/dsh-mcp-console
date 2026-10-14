@@ -154,4 +154,10 @@ export const STYLE = `
 .mcpc-import-cmd{overflow:hidden;color:var(--dsw-alias-label-tertiary);font-family:var(--ds-font-family-code,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace);font-size:11.5px;line-height:18px;white-space:nowrap;text-overflow:ellipsis}
 .mcpc-import-action{display:flex;align-items:center;justify-content:flex-end}
 .mcpc-tag-soft{border-color:transparent;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);font-family:inherit}
+.mcpc-recognised{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0}
+.mcpc-pair{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.mcpc-pair>.mcpc-input{flex:1 1 160px;height:30px}
+.mcpc-pair>.mcpc-pair-name{flex:0 1 180px;font-family:var(--ds-font-family-code,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace);font-size:12px}
+.mcpc-check{display:inline-flex;flex:none;align-items:center;gap:4px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px;white-space:nowrap;cursor:pointer}
+.mcpc-check>input{width:14px;height:14px;margin:0;accent-color:var(--dsw-alias-state-business-primary)}
 `

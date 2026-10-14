@@ -124,21 +124,70 @@ export function serverNameFor(name, existing) {
   return candidate
 }
 
+/**
+ * A value as flow-style YAML: JSON for plain data (JSON is YAML and every
+ * string is quoted), and a Loader `!!js` node as a tagged quoted scalar.
+ */
+export function flowYaml(value, indent = '') {
+  if (record(value) && typeof value.__jsExpr === 'string') return `!!js ${JSON.stringify(value.__jsExpr)}`
+  const inner = `${indent}  `
+  if (Array.isArray(value)) {
+    if (value.length === 0) return '[]'
+    return `[\n${value.map(item => `${inner}${flowYaml(item, inner)}`).join(',\n')}\n${indent}]`
+  }
+  if (record(value)) {
+    const entries = Object.entries(value).filter(([, item]) => item !== undefined)
+    if (entries.length === 0) return '{}'
+    return `{\n${entries.map(([key, item]) => `${inner}${JSON.stringify(key)}: ${flowYaml(item, inner)}`).join(',\n')}\n${indent}}`
+  }
+  return JSON.stringify(value)
+}
+
 /** The files of a configuration-only bundle carrying one MCP row. */
-export function bundleFiles({ serverName, config, description }) {
+export function bundleFiles({ serverName, config, description, homepage, origin = 'Imported' }) {
   const manifest = {
     name: `@local/mcp-${serverName.toLowerCase()}`,
     version: '0.1.0',
     private: true,
     description,
+    ...(typeof homepage === 'string' && homepage !== '' ? { homepage } : {}),
     dsh: { bundle: { patch: './cordis.patch.yml' } },
   }
-  // JSON is YAML: a flow-style patch needs no YAML writer and quotes every value.
   const patch = [{ insert: [{ id: `mcp-${serverName}`, name: MCP_MODULE, config }] }]
   return {
     'package.json': `${JSON.stringify(manifest, null, 2)}\n`,
-    'cordis.patch.yml': `# Imported by dsh-mcp-console. Generated; edit the server in its own client or reinstall.\n${JSON.stringify(patch, null, 2)}\n`,
+    'cordis.patch.yml': `# ${origin} by dsh-mcp-console. Generated; remove it in the MCP page and add it again to change it.\n${flowYaml(patch)}\n`,
     name: manifest.name,
+  }
+}
+
+/**
+ * Write a configuration-only bundle for one config and install it. A bundle
+ * that fails to install leaves no directory behind.
+ * @param options - the Plugin Manager, the config, the bundle directory, and
+ *   the manifest's description, homepage, and origin line.
+ * @returns `{ serverName, bundle, application, directory }`.
+ */
+export async function installConfigBundle({ pluginManager, config, bundleDir, description, homepage, origin }) {
+  if (pluginManager === undefined) throw new Error('MCP console: the Plugin Manager is not available in this profile')
+  const serverName = config.serverName
+  const files = bundleFiles({ serverName, config, description, homepage, origin })
+  const directory = join(bundleDir, serverName)
+  await mkdir(directory, { recursive: true })
+  await writeFile(join(directory, 'package.json'), files['package.json'], 'utf8')
+  await writeFile(join(directory, 'cordis.patch.yml'), files['cordis.patch.yml'], 'utf8')
+  let result
+  try {
+    result = await pluginManager.installBundle(directory, { enabled: true })
+  } catch (error) {
+    await rm(directory, { recursive: true, force: true }).catch(() => undefined)
+    throw error
+  }
+  return {
+    serverName,
+    bundle: files.name,
+    application: typeof result?.application === 'string' ? result.application : 'applied',
+    directory,
   }
 }
 
@@ -151,25 +200,6 @@ export function bundleFiles({ serverName, config, description }) {
 export async function importClientServer({ pluginManager, client, name, existingNames, bundleDir, paths }) {
   if (pluginManager === undefined) throw new Error('MCP console: the Plugin Manager is not available in this profile')
   const entry = await readClientServer({ client, name, paths })
-  const serverName = serverNameFor(name, existingNames)
-  const config = toMcpClientConfig(entry, serverName)
-  const files = bundleFiles({ serverName, config, description: `MCP server "${name}" imported from ${client}` })
-  const directory = join(bundleDir, serverName)
-  await mkdir(directory, { recursive: true })
-  await writeFile(join(directory, 'package.json'), files['package.json'], 'utf8')
-  await writeFile(join(directory, 'cordis.patch.yml'), files['cordis.patch.yml'], 'utf8')
-  let result
-  try {
-    result = await pluginManager.installBundle(directory, { enabled: true })
-  } catch (error) {
-    // A bundle that never installed leaves nothing behind.
-    await rm(directory, { recursive: true, force: true }).catch(() => undefined)
-    throw error
-  }
-  return {
-    serverName,
-    bundle: files.name,
-    application: typeof result?.application === 'string' ? result.application : 'applied',
-    directory,
-  }
+  const config = toMcpClientConfig(entry, serverNameFor(name, existingNames))
+  return installConfigBundle({ pluginManager, config, bundleDir, description: `MCP server "${name}" imported from ${client}` })
 }

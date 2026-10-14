@@ -298,7 +298,7 @@ test('the RPC answers in envelopes and hides foreign error text', async () => {
   assert.equal(toggled.error.message, 'MCP console: the request failed')
   assert.equal((await handler('scan/analyze', {})).error.message, 'MCP console: scan this computer first')
   const added = await handler('quick-add', { repositoryUrl: 'https://github.com/a/b', notes: 'n', locale: 'en', model: { provider: 'p', model: 'm' } })
-  assert.deepEqual(added.value.request, { repositoryUrl: 'https://github.com/a/b', notes: 'n', locale: 'en', model: { provider: 'p', model: 'm' } })
+  assert.deepEqual(added.value.request, { source: { kind: 'repository', value: 'https://github.com/a/b', label: 'a/b', link: 'https://github.com/a/b' }, notes: 'n', locale: 'en', model: { provider: 'p', model: 'm' } })
   assert.equal((await handler('nope', {})).error.message, 'MCP console: unknown endpoint')
   assert.deepEqual(Object.keys((await handler('nope', {})).error).sort(), ['code', 'details', 'message'])
 })

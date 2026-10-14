@@ -6,7 +6,7 @@
 
 **简体中文** · [English](README.en.md)
 
-**在 DeepSeek Harness 里集中管理 MCP 服务器：看状态、一键启停、让 AI 从开源仓库安装、自动发现本机可接入的软件。**
+**在 DeepSeek Harness 里集中管理 MCP 服务器：看状态、一键启停、让 AI 安装或手动添加、自动发现本机可接入的软件。**
 
 </div>
 
@@ -19,7 +19,8 @@
 | **删除** | AI 安装或导入的服务器可以一键删除：通过官方插件管理器卸载插件包，并清理它在 `mcp-bundles` 目录里的配置文件（目录外的文件一律不碰） |
 | **一键导入** | 扫描到的其他客户端（Claude Desktop、Claude Code、Cursor、VS Code、Windsurf、Codex）里的 MCP，可以直接导入，不经过 AI |
 | **实时刷新** | 服务器连上、断开、启停时页面自动更新，不靠定时轮询 |
-| **AI 快捷添加** | 填一个 GitHub 仓库地址（可加补充说明），插件在默认工作区开一个新会话，让 AI 阅读仓库、安装、写好配置并接入，全程每一步安装都会先征求你同意 |
+| **AI 快捷添加** | 填 MCP 服务器的来源（代码仓库、npm/PyPI 包名、Docker 镜像、README 里的启动命令或任意网页链接，可加补充说明），插件在默认工作区开一个新会话，让 AI 查清运行方式、安装、写好配置并接入，全程每一步安装都会先征求你同意 |
+| **手动添加** | 已经知道怎么运行时直接填：本地命令（如 `npx -y 包名`、`uvx 包名`、`docker run -i --rm 镜像`）或远程服务地址，不经过 AI；密钥可以只写「读取哪个环境变量」，不保存明文 |
 | **选择供应商和模型** | AI 快捷添加和联网分析都可以像模型选择器一样选供应商和模型，只对这次打开的会话生效，不改动你的默认模型 |
 | **发现本机可接入的服务** | 扫描本机已安装的应用、后台服务、监听端口、Docker 容器，以及 Claude Desktop / Claude Code / Cursor / VS Code / Windsurf / Codex 里已经配置的 MCP；确认后交给 AI 联网检索哪些有 MCP 服务器，再问你要接入哪些 |
 | **不泄露密钥** | 页面只显示环境变量和请求头的**名字**，参数里像密钥的值会被打码；扫描清单不含文件路径 |
@@ -57,10 +58,26 @@ DSH 的 MCP 客户端（`@deepseek-ai/dsh-mcp-client`）不对外提供连接状
 
 ### AI 快捷添加
 
-1. 填仓库地址（必须是 https），可写补充说明（例如「用 Docker 运行」「API Key 在环境变量 XXX」）。
+1. 填来源，可写补充说明（例如「用 Docker 运行」「API Key 在环境变量 XXX」）。可以填：
+   - 代码仓库：`https://github.com/owner/project`（GitLab、Gitee、Codeberg、Bitbucket 也行），或简写 `owner/project`
+   - npm 包：`@upstash/context7-mcp`、`npx -y @upstash/context7-mcp`、npmjs.com 的包页面
+   - PyPI 包：`uvx mcp-server-time`、`pip install mcp-server-fetch`、pypi.org 的项目页面
+   - Docker 镜像：`ghcr.io/github/github-mcp-server`、`mcp/fetch`、`docker run -i --rm …`、Docker Hub 页面
+   - 任意网页：MCP 目录（registry.modelcontextprotocol.io、Smithery、mcp.so）的详情页，或远程 MCP 端点地址
+
+   输入框下面会显示识别结果；给 AI 的提示会按类型写明优先用哪种方式运行。
 2. 点「开始安装」，插件在**默认工作区**新开一个会话并切过去。会话使用**创作模式**（agent 预设 `cordis`），因为只有它带有安装插件包的 `plugin_manager` 工具。
 3. AI 会按 DSH 官方推荐的方式接入：阅读仓库 → 选择运行方式 → 本机试运行 → 在 `~/.dsh/mcp-bundles/<名称>` 写一个只含配置的 bundle → 用 `plugin_manager install_bundle` 安装 → 验证工具可用。每一步安装都需要你批准。
 4. 密钥不会写成明文，AI 会用 `!!js process.env.变量名` 引用，并告诉你要设置哪些环境变量。
+
+### 手动添加
+
+不经过 AI，几秒完成，不消耗模型额度。
+
+- **本地命令**：整行填写启动命令，例如 `npx -y @upstash/context7-mcp`、`uvx mcp-server-time`、`docker run -i --rm mcp/fetch`。带空格的参数用引号；命令不经过 shell，管道、重定向不起作用。可以加环境变量和工作目录。
+- **远程服务**：填 streamable-http 端点地址和请求头。只支持 SSE 的服务器不能接入。
+- **密钥**：环境变量或请求头勾选「读环境变量」后，值一栏填变量名（如 `API_TOKEN`）或模板（如 `Bearer ${API_TOKEN}`），配置里写的是 `!!js` 表达式，不保存密钥本身。在系统里设置好环境变量后，需要完全退出并重新打开 DSH。
+- 名称留空时按命令或地址自动起名。添加后和导入的一样，是 `mcp-bundles` 目录下的一个配置包，可以在列表里禁用或删除。
 
 ### 发现本机可接入的服务
 
