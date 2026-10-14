@@ -127,10 +127,13 @@ test('a scan is kept on disk and served again after the plugin restarts', async 
   assert.equal((await first.call('scan/last')).value, null, 'nothing scanned yet')
   const scanned = await first.call('scan')
   assert.equal(scanned.ok, true)
-  assert.equal(scanned.value.apps[0].name, 'NVIDIA 图形驱动程序')
   assert.ok(scanned.value.inventoryChars > 0)
-  const powershell = scripts.find(argv => argv[0] === 'powershell')
-  if (process.platform === 'win32') assert.match(powershell.at(-1), /\[Console\]::OutputEncoding = \[System\.Text\.Encoding\]::UTF8/u)
+  // Only the Windows scan runs PowerShell, which the fake answers with an application.
+  if (process.platform === 'win32') {
+    assert.equal(scanned.value.apps[0].name, 'NVIDIA 图形驱动程序')
+    const powershell = scripts.find(argv => argv[0] === 'powershell')
+    assert.match(powershell.at(-1), /\[Console\]::OutputEncoding = \[System\.Text\.Encoding\]::UTF8/u)
+  }
   const saved = JSON.parse(await readFile(join(home, 'storages', 'dsh-mcp-console', 'last-scan.json'), 'utf8'))
   assert.equal(saved.scannedAt, scanned.value.scannedAt)
 
@@ -139,7 +142,7 @@ test('a scan is kept on disk and served again after the plugin restarts', async 
   apply(second.ctx, Config({}))
   const last = await second.call('scan/last')
   assert.equal(last.value.scannedAt, scanned.value.scannedAt)
-  assert.equal(last.value.apps[0].name, 'NVIDIA 图形驱动程序')
+  assert.deepEqual(last.value.apps, JSON.parse(JSON.stringify(scanned.value.apps)), 'the same scan comes back')
   const analyzed = await second.call('scan/analyze', { locale: 'zh' })
   assert.equal(analyzed.error.message, 'MCP console: the session controller is not available in this profile', 'the saved scan is accepted; only the missing controller stops it')
 })
