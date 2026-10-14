@@ -16,6 +16,8 @@
 - **Enable / disable** — one switch per server, written through DSH's official Plugin Manager and applied immediately.
 - **AI quick add** — enter where the server comes from: a code repository, an npm or PyPI package, a Docker image, a launch command from a README, or any web page. A new session opens in the default workspace and the AI works out how to run it, installs it, writes the configuration, and connects it. Every install step asks for your approval.
 - **Add manually** — when you already know how it runs, enter a local command (`npx -y <package>`, `uvx <package>`, `docker run -i --rm <image>`) or a remote endpoint, without the AI. Secrets can be read from environment variables instead of being stored.
+- **Search the MCP Registry** — search the official registry; an option fills Add manually with its command, environment variables, and headers.
+- **Test, edit, export** — Add manually tries the server (MCP handshake and tool list) before installing it, warns about missing environment variables and runtimes, and can go through mcp-remote for SSE-only or OAuth servers; servers in the plugin's bundle directory can be edited; all servers can be exported as `mcpServers` JSON without secrets.
 - **Discover local services** — scan installed applications, background services, listening ports, Docker containers, and MCP servers already configured in Claude Desktop, Claude Code, Cursor, VS Code, Windsurf, and Codex; then let an AI session research which of them have MCP servers and ask which to connect.
 - **No secrets shown** — only the names of environment variables and headers are shown, credential-looking arguments are masked, and the scan inventory carries no file paths.
 

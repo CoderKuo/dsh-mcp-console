@@ -148,5 +148,5 @@ test('the RPC classifies the quick-add source and routes manual add', async () =
   assert.equal((await handler('quick-add', { repositoryUrl: 'https://github.com/a/b' })).value.request.source.kind, 'repository', 'older pages send repositoryUrl')
   assert.match((await handler('quick-add', { source: 'rm -rf /' })).error.message, /^MCP console: enter a repository/u)
   assert.deepEqual((await handler('servers/add', { name: 'x', transport: 'stdio', commandLine: 'y', extra: 1 })).value, { serverName: 'x' })
-  assert.deepEqual(Object.keys(seen[0]).sort(), ['commandLine', 'cwd', 'env', 'headers', 'name', 'transport', 'url'])
+  assert.deepEqual(Object.keys(seen[0]).sort(), ['bridge', 'commandLine', 'cwd', 'env', 'headers', 'name', 'transport', 'url'])
 })

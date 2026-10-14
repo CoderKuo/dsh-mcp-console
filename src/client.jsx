@@ -14,6 +14,9 @@ import { en, zh } from './client-copy.js'
 import { STYLE } from './client-style.js'
 import { groupClientServers, launchLine } from './client-groups.js'
 import { classifySource } from './sources.js'
+import { Button, Card, clearMessage, fill } from './client-ui.jsx'
+import { ManualAddCard } from './client-manual.jsx'
+import { RegistryCard } from './client-registry.jsx'
 
 const NS = 'mcpConsole'
 const CHANNEL = '/mcp-console'
@@ -24,33 +27,11 @@ const RETRY_MS = 3_000
 /** This page's build; compared with the host's to catch a DSH that was not restarted after an update. */
 const CLIENT_VERSION = typeof __MCP_CONSOLE_VERSION__ === 'string' ? __MCP_CONSOLE_VERSION__ : 'dev'
 
-const fill = (text, values) => text.replace(/\{(\w+)\}/gu, (match, name) => (values[name] === undefined ? match : String(values[name])))
-
 function channelCaller(rpc) {
   return (endpoint, payload = {}, signal) => rpc.call(CHANNEL, endpoint, payload, signal).then(response => {
     if (!response?.ok) throw new Error(response?.error?.message ?? 'MCP console request failed')
     return response.value
   })
-}
-
-const clearMessage = error => String(error instanceof Error ? error.message : error).replace(/^MCP console:\s*/u, '')
-
-// ── primitives ──────────────────────────────────────────────────────────────
-
-function Card({ title, aside, children }) {
-  return (
-    <section className="mcpc-card">
-      <header className="mcpc-head">
-        <h3 className="mcpc-title">{title}</h3>
-        {aside}
-      </header>
-      {children}
-    </section>
-  )
-}
-
-function Button({ variant, size, children, ...rest }) {
-  return <button type="button" className="mcpc-btn" data-variant={variant} data-size={size} {...rest}>{children}</button>
 }
 
 /** The sidebar glyph: two plugs meeting, drawn inline (no host UI imports). */
@@ -161,7 +142,7 @@ const STATUS_KEY = { connected: 'statusConnected', starting: 'statusStarting', f
 
 // ── configured servers ──────────────────────────────────────────────────────
 
-function ServerRow({ server, call, t, onChanged }) {
+function ServerRow({ server, call, t, onChanged, onEdit }) {
   const [busy, setBusy] = react.useState(false)
   const [notice, setNotice] = react.useState()
   const [error, setError] = react.useState()
@@ -180,6 +161,14 @@ function ServerRow({ server, call, t, onChanged }) {
         return onChanged()
       })
       .catch(failure => setError(clearMessage(failure)))
+      .finally(() => setBusy(false))
+  }
+
+  const edit = () => {
+    setBusy(true)
+    setError(undefined)
+    Promise.resolve(onEdit(server))
+      .then(reason => { if (typeof reason === 'string') setError(reason) })
       .finally(() => setBusy(false))
   }
 
@@ -227,6 +216,7 @@ function ServerRow({ server, call, t, onChanged }) {
           {server.toolCount > 0 && <span className="mcpc-meta">{`${server.toolCount} ${t('tools')}`}</span>}
         </span>
         <span className="mcpc-actions">
+          {server.removable && server.bundle?.disabled !== true && <Button variant="ghost" disabled={busy} onClick={edit}>{t('edit')}</Button>}
           {server.removable && !confirming && <Button variant="danger" disabled={busy} onClick={() => setConfirming(true)}>{t('remove')}</Button>}
           <span className="mcpc-meta">{busy ? t('toggling') : server.enabled ? t('disable') : t('enable')}</span>
           <button
@@ -241,6 +231,8 @@ function ServerRow({ server, call, t, onChanged }) {
           />
         </span>
       </div>
+      {server.bundle?.disabled === true && <span className="mcpc-meta">{t('bundleOff')}</span>}
+      {server.toggleVia === 'bundle' && server.bundle?.mcpRows > 1 && <span className="mcpc-meta">{fill(t('bundleToggleMany'), { count: server.bundle.mcpRows })}</span>}
       <dl className="mcpc-kv">
         <dt>{t('transport')}</dt>
         <dd>{config.transport}</dd>
@@ -320,19 +312,69 @@ function ServerRow({ server, call, t, onChanged }) {
   )
 }
 
-function ServersCard({ status, loading, error, reload, call, t }) {
+/** The export: JSON other clients read, to copy or save. Secrets are placeholders. */
+function ExportPanel({ call, t, onClose }) {
+  const [state, setState] = react.useState()
+  const [copied, setCopied] = react.useState(false)
+  react.useEffect(() => {
+    let live = true
+    call('servers/export').then(value => { if (live) setState(value) }).catch(failure => { if (live) setState({ error: clearMessage(failure) }) })
+    return () => { live = false }
+  }, [call])
+  const copy = () => {
+    navigator.clipboard?.writeText(state.json).then(() => setCopied(true)).catch(() => setCopied(false))
+  }
+  const download = () => {
+    const url = URL.createObjectURL(new Blob([state.json], { type: 'application/json' }))
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'mcp-servers.json'
+    link.click()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1_000)
+  }
+  return (
+    <div className="mcpc-callout" data-tone="info">
+      <span className="mcpc-split">
+        <span className="mcpc-label">{state?.count === undefined ? t('exportTitle') : fill(t('exportCount'), { count: state.count })}</span>
+        <Button variant="ghost" onClick={onClose}>{t('exportClose')}</Button>
+      </span>
+      {state === undefined && <span className="mcpc-meta">{t('refreshing')}</span>}
+      {state?.error && <span className="mcpc-error">{state.error}</span>}
+      {state?.json && (
+        <>
+          <span className="mcpc-meta">{t('exportIntro')}</span>
+          <textarea className="mcpc-input mcpc-textarea mcpc-mono" readOnly rows={8} value={state.json} onFocus={event => event.target.select()} />
+          {state.notes.length > 0 && <ul className="mcpc-notes">{state.notes.map(note => <li key={note}>{note}</li>)}</ul>}
+          <span className="mcpc-actions">
+            <Button variant="primary" onClick={copy}>{copied ? t('exportCopied') : t('exportCopy')}</Button>
+            <Button onClick={download}>{t('exportDownload')}</Button>
+          </span>
+        </>
+      )}
+    </div>
+  )
+}
+
+function ServersCard({ status, loading, error, reload, call, t, onEdit }) {
   const servers = status?.servers ?? []
   const connected = servers.filter(server => server.status === 'connected').length
+  const [exporting, setExporting] = react.useState(false)
   return (
     <Card
       title={t('listTitle')}
-      aside={<Button disabled={loading} onClick={() => reload()}>{loading ? t('refreshing') : t('refresh')}</Button>}
+      aside={(
+        <span className="mcpc-actions">
+          {servers.length > 0 && <Button disabled={exporting} onClick={() => setExporting(true)}>{t('export')}</Button>}
+          <Button disabled={loading} onClick={() => reload()}>{loading ? t('refreshing') : t('refresh')}</Button>
+        </span>
+      )}
     >
+      {exporting && <ExportPanel call={call} t={t} onClose={() => setExporting(false)} />}
       {servers.length > 0 && <span className="mcpc-meta">{fill(t('listCount'), { count: servers.length, connected })}</span>}
       {status !== undefined && status.manageable === false && <p className="mcpc-note">{t('noManager')}</p>}
       {status !== undefined && servers.length === 0 && <p className="mcpc-note">{t('listEmpty')}</p>}
       <div className="mcpc-list">
-        {servers.map(server => <ServerRow key={server.entryId} server={server} call={call} t={t} onChanged={reload} />)}
+        {servers.map(server => <ServerRow key={server.entryId} server={server} call={call} t={t} onChanged={reload} onEdit={onEdit} />)}
       </div>
       {error && <p className="mcpc-error" role="alert">{`${t('error')}: ${error}`}</p>}
     </Card>
@@ -407,133 +449,6 @@ function QuickAddCard({ call, t, openSession, sessionsAvailable, choices, model,
   )
 }
 
-// ── manual add ──────────────────────────────────────────────────────────────
-
-const emptyPair = () => ({ name: '', value: '', fromEnv: false })
-/** A name whose literal value is masked while typing. */
-const SECRET_NAME = /key|token|secret|password|passwd|auth|credential|cookie|bearer/iu
-
-/** Name/value rows (environment variables or headers); a row may read its value from the environment. */
-function PairsEditor({ label, pairs, onChange, namePlaceholder, valuePlaceholder, disabled, t }) {
-  const update = (index, patch) => onChange(pairs.map((pair, i) => (i === index ? { ...pair, ...patch } : pair)))
-  return (
-    <div className="mcpc-field">
-      <span className="mcpc-label">{label}</span>
-      {pairs.map((pair, index) => (
-        <div key={index} className="mcpc-pair">
-          <input className="mcpc-input mcpc-pair-name" spellCheck={false} disabled={disabled} placeholder={namePlaceholder} value={pair.name} onChange={event => update(index, { name: event.target.value })} />
-          <input
-            className="mcpc-input"
-            spellCheck={false}
-            disabled={disabled}
-            type={!pair.fromEnv && SECRET_NAME.test(pair.name) ? 'password' : 'text'}
-            autoComplete="off"
-            placeholder={pair.fromEnv ? t('manualEnvPlaceholder') : valuePlaceholder}
-            value={pair.value}
-            onChange={event => update(index, { value: event.target.value })}
-          />
-          <label className="mcpc-check" title={t('manualFromEnvHint')}>
-            <input type="checkbox" disabled={disabled} checked={pair.fromEnv} onChange={event => update(index, { fromEnv: event.target.checked })} />
-            <span>{t('manualFromEnv')}</span>
-          </label>
-          <Button variant="ghost" disabled={disabled} aria-label={t('manualRemoveRow')} onClick={() => onChange(pairs.filter((_, i) => i !== index))}>×</Button>
-        </div>
-      ))}
-      <span>
-        <Button variant="ghost" disabled={disabled} onClick={() => onChange([...pairs, emptyPair()])}>{t('manualAddRow')}</Button>
-      </span>
-    </div>
-  )
-}
-
-const INITIAL_MANUAL = { name: '', transport: 'stdio', commandLine: '', cwd: '', env: [], url: '', headers: [] }
-
-/** A server name suggested from the command or URL, for an empty name field. */
-function suggestedName(form) {
-  try {
-    if (form.transport === 'streamable-http') return new URL(form.url).hostname.split('.').filter(part => !/^(?:www|mcp|api)$/u.test(part))[0]?.slice(0, 32) ?? ''
-    const source = classifySource(form.commandLine)
-    const base = source.label.replace(/^.*\//u, '').replace(/[@:].*$/u, '').replace(/^(?:mcp-server-|server-)/u, '').replace(/-mcp(?:-server)?$/u, '')
-    return base.replace(/[^A-Za-z0-9_-]+/gu, '-').slice(0, 32)
-  } catch {
-    return ''
-  }
-}
-
-function ManualAddCard({ call, t, onAdded }) {
-  const [form, setForm] = react.useState(INITIAL_MANUAL)
-  const [busy, setBusy] = react.useState(false)
-  const [done, setDone] = react.useState()
-  const [error, setError] = react.useState()
-  const set = patch => setForm(current => ({ ...current, ...patch }))
-  const remote = form.transport === 'streamable-http'
-  const suggestion = suggestedName(form)
-  const name = form.name.trim() === '' ? suggestion : form.name.trim()
-  const ready = name !== '' && (remote ? form.url.trim() !== '' : form.commandLine.trim() !== '')
-
-  const submit = event => {
-    event.preventDefault()
-    setBusy(true)
-    setError(undefined)
-    setDone(undefined)
-    call('servers/add', { ...form, name })
-      .then(result => {
-        setDone(result)
-        setForm(INITIAL_MANUAL)
-        return onAdded()
-      })
-      .catch(failure => setError(clearMessage(failure)))
-      .finally(() => setBusy(false))
-  }
-
-  return (
-    <Card title={t('manualTitle')}>
-      <p className="mcpc-note">{t('manualIntro')}</p>
-      <form className="mcpc-add" onSubmit={submit}>
-        <div className="mcpc-seg" role="radiogroup" aria-label={t('manualKind')}>
-          <button type="button" role="radio" aria-checked={!remote} disabled={busy} onClick={() => set({ transport: 'stdio' })}>{t('manualStdio')}</button>
-          <button type="button" role="radio" aria-checked={remote} disabled={busy} onClick={() => set({ transport: 'streamable-http' })}>{t('manualHttp')}</button>
-        </div>
-        <label className="mcpc-field">
-          <span className="mcpc-label">{t('manualName')}</span>
-          <input className="mcpc-input" spellCheck={false} disabled={busy} maxLength={32} placeholder={suggestion === '' ? t('manualNamePlaceholder') : suggestion} value={form.name} onChange={event => set({ name: event.target.value })} />
-        </label>
-        {remote
-          ? (
-            <>
-              <label className="mcpc-field">
-                <span className="mcpc-label">{t('manualUrl')}</span>
-                <input className="mcpc-input mcpc-mono" type="url" spellCheck={false} disabled={busy} placeholder="https://mcp.example.com/mcp" value={form.url} onChange={event => set({ url: event.target.value })} />
-                <span className="mcpc-meta">{t('manualUrlHint')}</span>
-              </label>
-              <PairsEditor label={t('headers')} pairs={form.headers} onChange={headers => set({ headers })} namePlaceholder="Authorization" valuePlaceholder={t('manualValuePlaceholder')} disabled={busy} t={t} />
-            </>
-          )
-          : (
-            <>
-              <label className="mcpc-field">
-                <span className="mcpc-label">{t('manualCommand')}</span>
-                <input className="mcpc-input mcpc-mono" spellCheck={false} disabled={busy} placeholder="npx -y @upstash/context7-mcp" value={form.commandLine} onChange={event => set({ commandLine: event.target.value })} />
-                <span className="mcpc-meta">{t('manualCommandHint')}</span>
-              </label>
-              <PairsEditor label={t('env')} pairs={form.env} onChange={env => set({ env })} namePlaceholder="API_KEY" valuePlaceholder={t('manualValuePlaceholder')} disabled={busy} t={t} />
-              <label className="mcpc-field">
-                <span className="mcpc-label">{t('manualCwd')}</span>
-                <input className="mcpc-input mcpc-mono" spellCheck={false} disabled={busy} placeholder={t('manualCwdPlaceholder')} value={form.cwd} onChange={event => set({ cwd: event.target.value })} />
-              </label>
-            </>
-          )}
-        <p className="mcpc-note">{t('manualSecrets')}</p>
-        <div className="mcpc-split">
-          <Button type="submit" variant="primary" size="md" disabled={busy || !ready}>{busy ? t('manualAdding') : t('manualAdd')}</Button>
-        </div>
-      </form>
-      {done && <p className="mcpc-note">{done.application === 'restart-required' ? t('importedRestart') : fill(t('manualAdded'), { name: done.serverName })}</p>}
-      {error && <p className="mcpc-error" role="alert">{`${t('error')}: ${error}`}</p>}
-    </Card>
-  )
-}
-
 // ── local discovery ─────────────────────────────────────────────────────────
 
 function Group({ title, items, render }) {
@@ -549,22 +464,31 @@ function Group({ title, items, render }) {
 /** MCP servers configured in other clients, each importable in one step. */
 function ClientServers({ servers, existing, call, t, onImported }) {
   const [state, setState] = react.useState({})
+  const [all, setAll] = react.useState(false)
   const rows = react.useMemo(() => groupClientServers(servers), [servers])
   if (rows.length === 0) return null
   const importOne = row => {
     setState(current => ({ ...current, [row.key]: { busy: true } }))
-    call('servers/import', { client: row.clients[0], name: row.name })
+    return call('servers/import', { client: row.clients[0], name: row.name })
       .then(result => {
         setState(current => ({ ...current, [row.key]: { done: result } }))
         return onImported()
       })
       .catch(failure => setState(current => ({ ...current, [row.key]: { error: clearMessage(failure) } })))
   }
+  // One at a time: each install runs pnpm on the profile.
+  const pending = rows.filter(row => !existing.includes(row.name) && state[row.key]?.done === undefined)
+  const importAll = async () => {
+    setAll(true)
+    for (const row of pending) await importOne(row)
+    setAll(false)
+  }
   return (
     <section className="mcpc-imports">
       <header className="mcpc-imports-head">
         <span className="mcpc-label">{t('scanClients')}</span>
         <span className="mcpc-meta">{fill(t('importCount'), { count: rows.length })}</span>
+        {pending.length > 1 && <Button variant="primary" disabled={all} onClick={() => { void importAll() }}>{all ? t('importing') : fill(t('importAll'), { count: pending.length })}</Button>}
       </header>
       <p className="mcpc-meta">{t('importIntro')}</p>
       <ul className="mcpc-import-list">
@@ -588,7 +512,7 @@ function ClientServers({ servers, existing, call, t, onImported }) {
                 {entry.done
                   ? <span className="mcpc-chip" data-tone="success">{entry.done.application === 'restart-required' ? t('importedRestart') : fill(t('imported'), { name: entry.done.serverName })}</span>
                   : (
-                    <Button variant={present ? undefined : 'primary'} disabled={entry.busy === true} onClick={() => importOne(row)}>
+                    <Button variant={present ? undefined : 'primary'} disabled={entry.busy === true || all} onClick={() => { void importOne(row) }}>
                       {entry.busy ? t('importing') : present ? t('importAgain') : t('import')}
                     </Button>
                   )}
@@ -729,7 +653,34 @@ function ConsolePage({ rpc, t, openSession }) {
   }, [call])
   const [model, setModel] = useModelChoice(choices)
 
+  // Runtimes on DSH's PATH, for warnings before a command that cannot start.
+  const [runtimes, setRuntimes] = react.useState()
+  react.useEffect(() => {
+    let live = true
+    call('runtimes').then(value => { if (live) setRuntimes(value) }).catch(() => undefined)
+    return () => { live = false }
+  }, [call])
+
+  // What Add manually shows: empty, a registry result, or a server being edited.
+  const [draft, setDraft] = react.useState({ key: 0, mode: 'add' })
+  const manualRef = react.useRef(null)
+  const showDraft = next => {
+    setDraft(current => ({ ...next, key: current.key + 1 }))
+    window.setTimeout(() => manualRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }), 50)
+  }
+  const fillFromRegistry = (form, origin) => showDraft({ mode: 'add', form, origin })
+  const editServer = server => call('servers/config', { entryId: server.entryId }).then(result => {
+    if (!result.editable) return fill(t('editUnavailable'), { reason: result.reason ?? '' })
+    showDraft({ mode: 'edit', form: result.form, entryId: server.entryId })
+    return undefined
+  }).catch(failure => clearMessage(failure))
+  const draftSaved = () => {
+    if (draft.mode === 'edit') setDraft(current => ({ key: current.key + 1, mode: 'add' }))
+    return reload()
+  }
+
   const sessionsAvailable = status?.sessions !== false
+  const existing = (status?.servers ?? []).map(server => server.name)
   const ai = { choices, model, setModel }
   return (
     <div className="mcpc-page">
@@ -741,10 +692,11 @@ function ConsolePage({ rpc, t, openSession }) {
         {status !== undefined && CLIENT_VERSION !== 'dev' && status.version !== CLIENT_VERSION && (
           <p className="mcpc-warn" role="alert">{fill(t('restartNeeded'), { page: CLIENT_VERSION, host: status.version ?? '?' })}</p>
         )}
-        <ServersCard status={status} loading={loading} error={error} reload={reload} call={call} t={t} />
+        <ServersCard status={status} loading={loading} error={error} reload={reload} call={call} t={t} onEdit={editServer} />
+        <RegistryCard call={call} t={t} runtimes={runtimes} existing={existing} onFill={fillFromRegistry} />
+        <ManualAddCard key={draft.key} draft={draft} call={call} t={t} runtimes={runtimes} onSaved={draftSaved} onCancel={() => setDraft(current => ({ key: current.key + 1, mode: 'add' }))} cardRef={manualRef} />
         <QuickAddCard call={call} t={t} openSession={openSession} sessionsAvailable={sessionsAvailable} {...ai} />
-        <ManualAddCard call={call} t={t} onAdded={reload} />
-        <ScanCard call={call} t={t} openSession={openSession} sessionsAvailable={sessionsAvailable} {...ai} existing={(status?.servers ?? []).map(server => server.name)} onImported={reload} />
+        <ScanCard call={call} t={t} openSession={openSession} sessionsAvailable={sessionsAvailable} {...ai} existing={existing} onImported={reload} />
       </div>
     </div>
   )

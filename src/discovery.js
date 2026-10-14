@@ -274,6 +274,10 @@ export async function scanLocal({ run, platform = process.platform, clientPaths,
  */
 export function inventoryText(scan) {
   const out = [`platform: ${scan.platform}`]
+  if (scan.runtimes !== undefined && scan.runtimes !== null) {
+    const found = Object.entries(scan.runtimes).map(([name, item]) => `${name} ${item.found ? item.version ?? 'found' : 'missing'}`)
+    if (found.length > 0) out.push(`runtimes on DSH's PATH: ${found.join(', ')}`)
+  }
   const section = (title, items, format) => {
     if (!Array.isArray(items) || items.length === 0) return
     out.push('', `## ${title} (${items.length})`)

@@ -57,6 +57,24 @@ export function splitCommandLine(line) {
 }
 
 /**
+ * The inverse of `splitCommandLine`, for showing a stored command in the
+ * form: tokens with spaces or quotes are quoted.
+ * @param tokens - the executable and its arguments.
+ * @returns the command line, or undefined when a token cannot be quoted.
+ */
+export function joinCommandLine(tokens) {
+  const out = []
+  for (const token of tokens) {
+    const text = String(token)
+    if (text !== '' && !/[\s"']/u.test(text)) out.push(text)
+    else if (!text.includes('"')) out.push(`"${text}"`)
+    else if (!text.includes("'")) out.push(`'${text}'`)
+    else return undefined
+  }
+  return out.join(' ')
+}
+
+/**
  * The expression for a value read from the environment: a bare variable name,
  * or a template where each `${NAME}` is replaced, e.g. `Bearer ${API_TOKEN}`.
  * A variable that is not set reads as an empty string.
@@ -95,10 +113,35 @@ function pairs(list, { pattern, what }) {
   return out
 }
 
+/** The variable mcp-remote reads the n-th header value from. */
+export const bridgeHeaderVariable = index => `MCP_REMOTE_HEADER_${index + 1}`
+
+/**
+ * Reach a remote server through mcp-remote, a local stdio process: it speaks
+ * streamable-http and SSE and runs the OAuth sign-in in the browser, which
+ * DSH's own client does not. Header values travel as environment variables
+ * mcp-remote expands (`Name:${VAR}`, no spaces, as its README advises for
+ * Windows), and are passed explicitly because DSH scrubs credential-shaped
+ * names from a child's environment.
+ */
+function bridgeConfig(serverName, url, headers) {
+  const args = ['-y', 'mcp-remote', url.toString()]
+  const env = {}
+  Object.entries(headers).forEach(([name, value], index) => {
+    const variable = bridgeHeaderVariable(index)
+    args.push('--header', `${name}:\${${variable}}`)
+    env[variable] = value
+  })
+  const local = /^(?:localhost|127\.0\.0\.1|\[::1\])$/u.test(url.hostname)
+  if (url.protocol === 'http:' && !local) args.push('--allow-http')
+  return { serverName, transport: 'stdio', command: 'npx', args, env }
+}
+
 /**
  * Build the dsh-mcp-client config the person described.
- * @param request - `{ name, transport, commandLine, cwd, env, url, headers }`
- *   where `env` and `headers` are `{ name, value, fromEnv }` lists.
+ * @param request - `{ name, transport, commandLine, cwd, env, url, headers,
+ *   bridge }` where `env` and `headers` are `{ name, value, fromEnv }` lists
+ *   and `bridge` routes a remote server through mcp-remote.
  * @param existingNames - the configured server names.
  * @returns the config.
  */
@@ -115,7 +158,9 @@ export function manualConfig(request, existingNames = []) {
       fail('enter the endpoint as an http(s) URL')
     }
     if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') fail('enter the endpoint as an http(s) URL')
-    return { serverName, transport: 'streamable-http', url: parsed.toString(), headers: pairs(request.headers, { pattern: HEADER_NAME, what: 'headers' }) }
+    const headers = pairs(request.headers, { pattern: HEADER_NAME, what: 'headers' })
+    if (request.bridge === true) return bridgeConfig(serverName, parsed, headers)
+    return { serverName, transport: 'streamable-http', url: parsed.toString(), headers }
   }
   if (request?.transport !== 'stdio') fail('choose a local command or a remote endpoint')
   const line = typeof request.commandLine === 'string' ? request.commandLine : ''

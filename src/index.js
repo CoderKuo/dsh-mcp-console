@@ -19,11 +19,15 @@ import { dirname, join } from 'node:path'
 
 import z from '@deepseek-ai/schemastery'
 
-import { CHANNEL, DEFAULT_AGENT_PRESET, DEFAULT_SCAN_TIMEOUT_MS, PLUGIN_ID, PLUGIN_VERSION } from './constants.js'
+import { CHANNEL, DEFAULT_AGENT_PRESET, DEFAULT_SCAN_TIMEOUT_MS, DEFAULT_TEST_TIMEOUT_MS, MCP_MODULE, PLUGIN_ID, PLUGIN_VERSION, REMOTE_TEST_TIMEOUT_MS } from './constants.js'
 import { createChangeFeed } from './changes.js'
 import { createRunner, inventoryText, scanLocal } from './discovery.js'
+import { parsePatch, readServerForm, updateServer } from './editor.js'
+import { exportServers } from './exporter.js'
 import { importClientServer, installConfigBundle } from './importer.js'
 import { manualConfig } from './manual.js'
+import { checkEnvironment, detectRuntimes, probeServer } from './probe.js'
+import { DEFAULT_REGISTRY_URL, searchRegistry } from './registry.js'
 import { listModelChoices } from './models.js'
 import { connectSettings, fieldValue, live } from './preferences.js'
 import { discoveryPrompt, quickAddPrompt } from './prompts.js'
@@ -46,6 +50,10 @@ export const Config = z.object({
   bundleDirectory: z.string().default(''),
   /** Bound on one local discovery command, in milliseconds. */
   scanTimeoutMs: z.natural().min(1000).default(DEFAULT_SCAN_TIMEOUT_MS),
+  /** Bound on trying a local server before it is added, in milliseconds. */
+  testTimeoutMs: z.natural().min(5000).default(DEFAULT_TEST_TIMEOUT_MS),
+  /** The MCP Registry searched from the page. */
+  registryUrl: z.string().default(DEFAULT_REGISTRY_URL),
   /** Repository links the person set for rows, by row id. */
   repositories: live(z.dict(z.string()).default({})),
 })
@@ -78,6 +86,7 @@ export function apply(ctx, config) {
   const bundleDir = () => (typeof config?.bundleDirectory === 'string' && config.bundleDirectory.trim() !== ''
     ? config.bundleDirectory.trim()
     : join(dshHome(), 'mcp-bundles'))
+  const configValue = key => (typeof config?.[key] === 'string' || typeof config?.[key] === 'number' ? config[key] : undefined)
   const repositories = () => {
     const value = fieldValue((source() ?? {}).repositories)
     return value !== null && typeof value === 'object' ? value : {}
@@ -144,6 +153,40 @@ export function apply(ctx, config) {
   }
   const withSize = scan => (scan === undefined ? null : { ...scan, inventoryChars: inventoryText(scan).length })
 
+  /** The config of one row of an installed bundle, read from its patch (for a switched-off bundle). */
+  const readBundleConfig = async (bundleName, rowId) => {
+    const dir = profile()?.dir
+    if (typeof dir !== 'string') return undefined
+    const packageDir = join(dir, 'node_modules', ...bundleName.split('/'))
+    const manifest = JSON.parse(await readFile(join(packageDir, 'package.json'), 'utf8'))
+    const patchName = manifest?.dsh?.bundle?.patch
+    if (typeof patchName !== 'string') return undefined
+    const patch = parsePatch(await readFile(join(packageDir, patchName), 'utf8'))
+    for (const operation of Array.isArray(patch) ? patch : []) {
+      for (const row of Array.isArray(operation?.insert) ? operation.insert : []) {
+        if (row?.id === rowId && row?.name === MCP_MODULE) return row.config
+      }
+    }
+    return undefined
+  }
+
+  /** Runtimes found on the host's PATH, kept for a minute. */
+  let runtimeCache
+  const runtimes = async refresh => {
+    if (!refresh && runtimeCache !== undefined && Date.now() - runtimeCache.at < 60_000) return runtimeCache.value
+    const value = await detectRuntimes(service('subprocess'), createRunner(service('subprocess'), { timeoutMs: 10_000 }))
+    runtimeCache = { at: Date.now(), value }
+    return value
+  }
+
+  /** A form's config for a test: the name may still be empty, and kept expressions are left out. */
+  const testConfig = form => manualConfig({
+    ...form,
+    name: typeof form.name === 'string' && /^[A-Za-z0-9_-]{1,32}$/u.test(form.name.trim()) ? form.name : 'test',
+    env: (form.env ?? []).filter(item => item?.expression !== true),
+    headers: (form.headers ?? []).filter(item => item?.expression !== true),
+  })
+
   const handler = createConsoleRpc({
     status: async () => ({
       ...(await listServers({
@@ -152,6 +195,7 @@ export function apply(ctx, config) {
         pluginManager: service('pluginManager'),
         profileDir: profile()?.dir,
         repositories: repositories(),
+        readBundleConfig,
       })),
       sessions: service('sessionController') !== undefined,
       writable: preference.writable === true,
@@ -167,6 +211,26 @@ export function apply(ctx, config) {
       const what = config.transport === 'stdio' ? config.command : config.url
       return installConfigBundle({ pluginManager: service('pluginManager'), config, bundleDir: bundleDir(), description: `MCP server "${config.serverName}" (${what}) added by hand`, origin: 'Added by hand' })
     }),
+    testServer: (form, signal) => {
+      const config = testConfig(form)
+      const local = configValue('testTimeoutMs') ?? DEFAULT_TEST_TIMEOUT_MS
+      // mcp-remote may wait for an OAuth sign-in in the browser.
+      const timeoutMs = config.transport !== 'stdio' ? REMOTE_TEST_TIMEOUT_MS : config.args?.[1] === 'mcp-remote' ? Math.max(local, 120_000) : local
+      return probeServer(config, { subprocess: service('subprocess'), timeoutMs, signal })
+    },
+    serverForm: entryId => readServerForm({ pluginManager: service('pluginManager'), entryId, profileDir: profile()?.dir, bundleDir: bundleDir() }),
+    updateServer: (entryId, form) => changing(() => updateServer({
+      pluginManager: service('pluginManager'),
+      entryId,
+      request: form,
+      existingNames: existingNames(),
+      profileDir: profile()?.dir,
+      bundleDir: bundleDir(),
+    })),
+    exportServers: async () => exportServers(readMcpRows(service('loader'))),
+    checkEnv: names => checkEnvironment(names),
+    runtimes,
+    searchRegistry: ({ query, cursor }, signal) => searchRegistry({ query, cursor, baseUrl: configValue('registryUrl') || DEFAULT_REGISTRY_URL, signal }),
     wait: ({ revision }, signal) => changes.wait(revision, { signal }),
     setRepository: async (rowId, url) => {
       if (rowId === '') throw new Error('MCP console: unknown server')
@@ -189,7 +253,7 @@ export function apply(ctx, config) {
     scan: async signal => {
       const run = createRunner(service('subprocess'), { timeoutMs: config?.scanTimeoutMs ?? DEFAULT_SCAN_TIMEOUT_MS })
       signal?.throwIfAborted?.()
-      lastScan = await scanLocal({ run })
+      lastScan = { ...(await scanLocal({ run })), runtimes: await runtimes(true).catch(() => undefined) }
       await saveLastScan(lastScan)
       return withSize(lastScan)
     },
@@ -226,7 +290,11 @@ export { MASK, redactArgs, redactConfig, redactMap } from './redact.js'
 export { bundleSourceDir, deleteServer, isInside, listServers, normalizeRepository, readMcpRows, serverStatus, setServerEnabled, toolPrefix, toolsByServer } from './servers.js'
 export { createChangeFeed } from './changes.js'
 export { bundleFiles, flowYaml, importClientServer, installConfigBundle, readClientServer, serverNameFor, toMcpClientConfig } from './importer.js'
-export { environmentExpression, manualConfig, splitCommandLine } from './manual.js'
+export { environmentExpression, joinCommandLine, manualConfig, splitCommandLine } from './manual.js'
+export { configToForm, parsePatch, readServerForm, updateServer, valueToPair } from './editor.js'
+export { exportServers } from './exporter.js'
+export { checkEnvironment, detectRuntimes, probeHttp, probeServer, probeStdio, resolveValue, runtimeOf } from './probe.js'
+export { registryOptions, registryResult, searchRegistry, suggestName } from './registry.js'
 export { classifySource } from './sources.js'
 export { listModelChoices } from './models.js'
 export { openPromptSession, pickedModel, resolveDefaultWorkspace, selectSessionModel } from './sessions.js'

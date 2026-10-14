@@ -98,7 +98,21 @@ async function bundleRepository(profileDir, bundleName) {
  * @param options - the services it reads; any may be absent in a headless profile.
  * @returns `{ servers, manageable }`.
  */
-export async function listServers({ loader, tools, pluginManager, profileDir, repositories = {} }) {
+/** The id a server of a switched-off bundle goes by: it has no Loader entry. */
+export const BUNDLE_ID_PREFIX = 'bundle:'
+
+/**
+ * Whether a bundle can be switched as a whole for one of its servers: an
+ * installed bundle that only carries MCP rows (what import, Add manually, and
+ * AI quick add install), so switching it touches nothing else.
+ */
+export const switchableBundle = bundle => bundle?.installed === true
+  && bundle.optional !== true
+  && bundle.readOnlyReason === undefined
+  && Array.isArray(bundle.rows) && bundle.rows.length > 0
+  && bundle.rows.every(row => row?.moduleName === MCP_MODULE)
+
+export async function listServers({ loader, tools, pluginManager, profileDir, repositories = {}, readBundleConfig }) {
   const rows = readMcpRows(loader)
   const byServer = toolsByServer(typeof tools?.schemas === 'function' ? tools.schemas() : [])
   let plugins = []
@@ -143,12 +157,48 @@ export async function listServers({ loader, tools, pluginManager, profileDir, re
         },
       }),
       removable: pluginManager !== undefined && bundle?.removable === true,
-      ...(plugin?.readOnlyReason === undefined ? {} : { readOnlyReason: plugin.readOnlyReason }),
-      toggleable: pluginManager !== undefined && plugin !== undefined && plugin.readOnlyReason === undefined,
+      ...toggleFacts(pluginManager, plugin, bundle),
     }
   }))
+  // A switched-off bundle's rows have no Loader entry; list them so they can be switched back on.
+  for (const bundle of bundles) {
+    if (bundle?.enabled !== false || !switchableBundle(bundle)) continue
+    for (const row of bundle.rows) {
+      const config = typeof readBundleConfig === 'function' ? await readBundleConfig(bundle.name, row.rowId).catch(() => undefined) : undefined
+      const serverName = typeof config?.serverName === 'string' ? config.serverName : String(row.rowId ?? '').replace(/^mcp-/u, '')
+      const repository = normalizeRepository(repositories[row.rowId]) ?? await bundleRepository(profileDir, bundle.name)
+      servers.push({
+        entryId: `${BUNDLE_ID_PREFIX}${bundle.name}`,
+        rowId: row.rowId,
+        name: serverName,
+        status: 'disabled',
+        enabled: false,
+        config: config === undefined ? {} : redactConfig(config),
+        toolCount: 0,
+        tools: [],
+        ...(repository === undefined ? {} : { repository }),
+        bundle: {
+          name: bundle.name,
+          ...(bundle.version === undefined ? {} : { version: bundle.version }),
+          mcpRows: bundle.rows.length,
+          disabled: true,
+        },
+        removable: bundle.removable === true,
+        toggleable: true,
+        toggleVia: 'bundle',
+      })
+    }
+  }
   servers.sort((a, b) => a.name.localeCompare(b.name))
   return { servers, manageable: pluginManager !== undefined }
+}
+
+/** How a listed server is switched: its own row, else its whole bundle, else not at all. */
+function toggleFacts(pluginManager, plugin, bundle) {
+  if (pluginManager === undefined) return { toggleable: false }
+  if (plugin !== undefined && plugin.readOnlyReason === undefined) return { toggleable: true, toggleVia: 'row' }
+  if (switchableBundle(bundle)) return { toggleable: true, toggleVia: 'bundle' }
+  return { toggleable: false, ...(plugin?.readOnlyReason === undefined ? {} : { readOnlyReason: plugin.readOnlyReason }) }
 }
 
 /**
@@ -161,7 +211,25 @@ export async function listServers({ loader, tools, pluginManager, profileDir, re
 export async function setServerEnabled(pluginManager, entryId, enabled) {
   if (pluginManager === undefined) throw new Error('MCP console: the Plugin Manager is not available in this profile')
   if (typeof entryId !== 'string' || entryId === '') throw new Error('MCP console: unknown server')
-  const result = await pluginManager.setPluginEnabled(entryId, enabled === true)
+  let result
+  if (entryId.startsWith(BUNDLE_ID_PREFIX)) {
+    result = await pluginManager.setBundleEnabled(entryId.slice(BUNDLE_ID_PREFIX.length), enabled === true)
+  } else {
+    // A row inside a bundle is read-only for setPluginEnabled; the bundle is switched instead.
+    const plugins = (await pluginManager.listPlugins?.()?.catch(() => [])) ?? []
+    const plugin = plugins.find(item => item?.entryId === entryId)
+    if (plugin === undefined || plugin.readOnlyReason === undefined) {
+      result = await pluginManager.setPluginEnabled(entryId, enabled === true)
+    } else {
+      const bundles = (await pluginManager.listBundles?.()?.catch(() => [])) ?? []
+      const bundle = bundles.find(item => (item?.rows ?? []).some(row => row?.entryId === entryId))
+      if (!switchableBundle(bundle) || typeof pluginManager.setBundleEnabled !== 'function') {
+        result = await pluginManager.setPluginEnabled(entryId, enabled === true)
+      } else {
+        result = await pluginManager.setBundleEnabled(bundle.name, enabled === true)
+      }
+    }
+  }
   return {
     application: typeof result?.application === 'string' ? result.application : 'applied',
     ...(Array.isArray(result?.warnings) && result.warnings.length > 0 ? { warnings: result.warnings.map(String).slice(0, 5) } : {}),
@@ -203,7 +271,9 @@ export async function bundleSourceDir(profileDir, bundleName) {
 export async function deleteServer({ pluginManager, entryId, profileDir, bundleDir }) {
   if (pluginManager === undefined) throw new Error('MCP console: the Plugin Manager is not available in this profile')
   const bundles = await pluginManager.listBundles()
-  const bundle = bundles.find(item => (item?.rows ?? []).some(row => row?.entryId === entryId))
+  const bundle = typeof entryId === 'string' && entryId.startsWith(BUNDLE_ID_PREFIX)
+    ? bundles.find(item => item?.name === entryId.slice(BUNDLE_ID_PREFIX.length))
+    : bundles.find(item => (item?.rows ?? []).some(row => row?.entryId === entryId))
   if (bundle === undefined) throw new Error('MCP console: this server is not provided by a removable bundle; switch it off instead')
   if (bundle.removable !== true) throw new Error('MCP console: this bundle comes with DSH and cannot be removed; switch it off instead')
   // Read before removal: pnpm drops the dependency from the manifest.

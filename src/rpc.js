@@ -31,7 +31,21 @@ export function acceptRepositoryUrl(value) {
  * @param options - the operations the page may call.
  * @returns a handler for `connection.rpc.handle(CHANNEL, handler)`.
  */
-export function createConsoleRpc({ status, toggle, remove, importServer, addServer, wait, setRepository, models, quickAdd, scan, lastScan, analyze }) {
+/** The Add manually form fields the page may send; anything else is dropped. */
+export function pickForm(payload) {
+  return {
+    name: payload?.name,
+    transport: payload?.transport,
+    commandLine: payload?.commandLine,
+    cwd: payload?.cwd,
+    env: payload?.env,
+    url: payload?.url,
+    headers: payload?.headers,
+    bridge: payload?.bridge === true,
+  }
+}
+
+export function createConsoleRpc({ status, toggle, remove, importServer, addServer, testServer, serverForm, updateServer, exportServers, checkEnv, runtimes, searchRegistry, wait, setRepository, models, quickAdd, scan, lastScan, analyze }) {
   const endpoints = {
     status: () => status(),
     'servers/toggle': payload => toggle(String(payload?.entryId ?? ''), payload?.enabled === true),
@@ -39,15 +53,14 @@ export function createConsoleRpc({ status, toggle, remove, importServer, addServ
     'servers/import': payload => importServer({ client: String(payload?.client ?? ''), name: String(payload?.name ?? '') }),
     'status/wait': (payload, signal) => wait({ revision: Number(payload?.revision) }, signal),
     'servers/repository': payload => setRepository(String(payload?.rowId ?? ''), typeof payload?.url === 'string' ? payload.url : ''),
-    'servers/add': payload => addServer({
-      name: payload?.name,
-      transport: payload?.transport,
-      commandLine: payload?.commandLine,
-      cwd: payload?.cwd,
-      env: payload?.env,
-      url: payload?.url,
-      headers: payload?.headers,
-    }),
+    'servers/add': payload => addServer(pickForm(payload)),
+    'servers/test': (payload, signal) => testServer(pickForm(payload), signal),
+    'servers/config': payload => serverForm(String(payload?.entryId ?? '')),
+    'servers/update': payload => updateServer(String(payload?.entryId ?? ''), pickForm(payload)),
+    'servers/export': () => exportServers(),
+    'env/check': payload => checkEnv(Array.isArray(payload?.names) ? payload.names.filter(name => typeof name === 'string') : []),
+    runtimes: payload => runtimes(payload?.refresh === true),
+    'registry/search': (payload, signal) => searchRegistry({ query: typeof payload?.query === 'string' ? payload.query : '', cursor: typeof payload?.cursor === 'string' ? payload.cursor : undefined }, signal),
     'quick-add': (payload, signal) => quickAdd({
       source: classifySource(typeof payload?.source === 'string' ? payload.source : payload?.repositoryUrl),
       notes: typeof payload?.notes === 'string' ? payload.notes : '',

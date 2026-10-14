@@ -24,6 +24,11 @@ export const DEFAULT_AGENT_PRESET = 'cordis'
 /** Directory name of the first-use Workspace the desktop app creates. */
 export const DEFAULT_WORKSPACE_DIRECTORY = 'default-workspace'
 
+/** Bound on trying a local server before it is added (a first `npx`/`uvx`/`docker` run downloads). */
+export const DEFAULT_TEST_TIMEOUT_MS = 90_000
+/** Bound on trying a remote endpoint. */
+export const REMOTE_TEST_TIMEOUT_MS = 20_000
+
 /** Bound on one local discovery command. */
 export const DEFAULT_SCAN_TIMEOUT_MS = 20_000
 /** Upper bound on the inventory text handed to an AI session. */
