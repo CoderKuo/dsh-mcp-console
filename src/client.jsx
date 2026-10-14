@@ -57,6 +57,92 @@ function PanelIcon({ size = 20 }) {
   )
 }
 
+// ── model choice ────────────────────────────────────────────────────────────
+
+const MODEL_KEY = 'dsh-mcp-console.model'
+
+/** The last model chosen on this page, per viewer; unavailable storage just forgets it. */
+function rememberedModel() {
+  try {
+    const value = JSON.parse(window.localStorage.getItem(MODEL_KEY) ?? 'null')
+    return typeof value?.provider === 'string' && typeof value?.model === 'string' ? value : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function rememberModel(value) {
+  try {
+    window.localStorage.setItem(MODEL_KEY, JSON.stringify(value))
+  } catch {
+    // Storage is a convenience.
+  }
+}
+
+/** A choice still offered by the listing, else undefined. */
+function offered(choices, value) {
+  const provider = choices?.providers?.find(item => item.id === value?.provider)
+  return provider?.models.some(model => model.id === value?.model) ? { provider: value.provider, model: value.model } : undefined
+}
+
+/** The first offered model, for a listing without a usable default. */
+function firstOffered(choices) {
+  const provider = choices?.providers?.find(item => item.models.length > 0)
+  return provider === undefined ? undefined : { provider: provider.id, model: provider.models[0].id }
+}
+
+/** One shared selection for both AI flows: remembered, else the default model, else the first offered. */
+function useModelChoice(choices) {
+  const [choice, setChoice] = react.useState()
+  react.useEffect(() => {
+    if (choices === undefined) return
+    setChoice(current => offered(choices, current) ?? offered(choices, rememberedModel()) ?? offered(choices, choices.default) ?? firstOffered(choices))
+  }, [choices])
+  const update = next => {
+    setChoice(next)
+    if (next !== undefined) rememberModel(next)
+  }
+  return [choice, update]
+}
+
+/** Provider and model selects, like the model picker's two levels. */
+function ModelPicker({ choices, value, onChange, disabled, t }) {
+  if (choices === undefined) return <span className="mcpc-meta">{t('modelLoading')}</span>
+  const providers = choices.providers.filter(provider => provider.models.length > 0)
+  if (providers.length === 0) return <span className="mcpc-meta">{t('modelNone')}</span>
+  const provider = providers.find(item => item.id === value?.provider) ?? providers[0]
+  const isDefault = value !== undefined && choices.default?.provider === value.provider && choices.default?.model === value.model
+  return (
+    <div className="mcpc-field">
+      <span className="mcpc-label">{t('modelTitle')}</span>
+      <div className="mcpc-form">
+        <select
+          className="mcpc-input mcpc-select"
+          aria-label={t('modelProvider')}
+          disabled={disabled}
+          value={provider.id}
+          onChange={event => {
+            const next = providers.find(item => item.id === event.target.value)
+            if (next !== undefined) onChange({ provider: next.id, model: next.models[0].id })
+          }}
+        >
+          {providers.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+        </select>
+        <select
+          className="mcpc-input mcpc-select"
+          aria-label={t('modelModel')}
+          disabled={disabled}
+          value={provider.models.some(model => model.id === value?.model) ? value.model : provider.models[0].id}
+          onChange={event => onChange({ provider: provider.id, model: event.target.value })}
+        >
+          {provider.models.map(model => <option key={model.id} value={model.id}>{model.name}</option>)}
+        </select>
+      </div>
+      <span className="mcpc-meta">{isDefault ? t('modelIsDefault') : t('modelHint')}</span>
+    </div>
+  )
+}
+
 const STATUS_TONE = { connected: 'success', starting: 'info', failed: 'danger', disabled: 'neutral', stopped: 'neutral' }
 const STATUS_KEY = { connected: 'statusConnected', starting: 'statusStarting', failed: 'statusFailed', disabled: 'statusDisabled', stopped: 'statusStopped' }
 
@@ -217,7 +303,7 @@ function ServersCard({ status, loading, error, reload, call, t }) {
 
 // ── AI quick add ────────────────────────────────────────────────────────────
 
-function QuickAddCard({ call, t, openSession, sessionsAvailable }) {
+function QuickAddCard({ call, t, openSession, sessionsAvailable, choices, model, setModel }) {
   const [url, setUrl] = react.useState('')
   const [notes, setNotes] = react.useState('')
   const [busy, setBusy] = react.useState(false)
@@ -229,7 +315,7 @@ function QuickAddCard({ call, t, openSession, sessionsAvailable }) {
     setBusy(true)
     setError(undefined)
     setDone(false)
-    call('quick-add', { repositoryUrl: url, notes, locale: t('lang') })
+    call('quick-add', { repositoryUrl: url, notes, locale: t('lang'), ...(model === undefined ? {} : { model }) })
       .then(result => {
         setDone(true)
         setUrl('')
@@ -252,6 +338,7 @@ function QuickAddCard({ call, t, openSession, sessionsAvailable }) {
           <span className="mcpc-label">{t('addNotes')}</span>
           <textarea className="mcpc-textarea" rows={2} placeholder={t('addNotesPlaceholder')} value={notes} onChange={event => setNotes(event.target.value)} />
         </label>
+        <ModelPicker choices={choices} value={model} onChange={setModel} disabled={busy} t={t} />
         <div className="mcpc-split">
           <Button type="submit" variant="primary" size="md" disabled={busy || url.trim() === '' || !sessionsAvailable}>{busy ? t('addStarting') : t('addStart')}</Button>
         </div>
@@ -275,7 +362,7 @@ function Group({ title, items, render }) {
   )
 }
 
-function ScanCard({ call, t, openSession, sessionsAvailable }) {
+function ScanCard({ call, t, openSession, sessionsAvailable, choices, model, setModel }) {
   const [scan, setScan] = react.useState()
   const [busy, setBusy] = react.useState(false)
   const [analyzing, setAnalyzing] = react.useState(false)
@@ -302,7 +389,7 @@ function ScanCard({ call, t, openSession, sessionsAvailable }) {
   const analyze = () => {
     setAnalyzing(true)
     setError(undefined)
-    call('scan/analyze', { locale: t('lang') })
+    call('scan/analyze', { locale: t('lang'), ...(model === undefined ? {} : { model }) })
       .then(result => openSession(result.sessionId))
       .catch(failure => setError(clearMessage(failure)))
       .finally(() => setAnalyzing(false))
@@ -334,6 +421,7 @@ function ScanCard({ call, t, openSession, sessionsAvailable }) {
             <Group title={t('scanProcesses')} items={scan.processes} render={item => [item.name, item.product].filter(Boolean).join(' · ')} />
           </div>
           <p className="mcpc-note">{t('scanPrivacy')}</p>
+          <ModelPicker choices={choices} value={model} onChange={setModel} disabled={analyzing} t={t} />
           <div className="mcpc-split">
             <Button variant="primary" size="md" disabled={analyzing || !sessionsAvailable} onClick={analyze}>{analyzing ? t('scanAnalyzing') : t('scanAnalyze')}</Button>
           </div>
@@ -372,7 +460,17 @@ function ConsolePage({ rpc, t, openSession }) {
     return () => window.clearInterval(timer)
   }, [reload, call])
 
+  // The providers and models the picker offers, read once per page visit.
+  const [choices, setChoices] = react.useState()
+  react.useEffect(() => {
+    let live = true
+    call('models').then(value => { if (live) setChoices(value) }).catch(() => { if (live) setChoices({ providers: [] }) })
+    return () => { live = false }
+  }, [call])
+  const [model, setModel] = useModelChoice(choices)
+
   const sessionsAvailable = status?.sessions !== false
+  const ai = { choices, model, setModel }
   return (
     <div className="mcpc-page">
       <div className="mcpc">
@@ -381,8 +479,8 @@ function ConsolePage({ rpc, t, openSession }) {
         </header>
         <p className="mcpc-intro">{t('intro')}</p>
         <ServersCard status={status} loading={loading} error={error} reload={reload} call={call} t={t} />
-        <QuickAddCard call={call} t={t} openSession={openSession} sessionsAvailable={sessionsAvailable} />
-        <ScanCard call={call} t={t} openSession={openSession} sessionsAvailable={sessionsAvailable} />
+        <QuickAddCard call={call} t={t} openSession={openSession} sessionsAvailable={sessionsAvailable} {...ai} />
+        <ScanCard call={call} t={t} openSession={openSession} sessionsAvailable={sessionsAvailable} {...ai} />
       </div>
     </div>
   )

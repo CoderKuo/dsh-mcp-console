@@ -140,4 +140,5 @@ export const STYLE = `
 .mcpc-group>ul{margin:0;padding-left:16px;max-height:180px;overflow:auto;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}
 .mcpc-link{color:var(--dsw-alias-state-business-primary);text-decoration:none;word-break:break-all}
 .mcpc-link:hover{text-decoration:underline}
+.mcpc-select{flex:1 1 180px;height:32px;padding:0 8px;cursor:pointer}
 `

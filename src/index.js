@@ -19,11 +19,12 @@ import z from '@deepseek-ai/schemastery'
 
 import { CHANNEL, DEFAULT_AGENT_PRESET, DEFAULT_SCAN_TIMEOUT_MS, PLUGIN_ID } from './constants.js'
 import { createRunner, inventoryText, scanLocal } from './discovery.js'
+import { listModelChoices } from './models.js'
 import { connectSettings, fieldValue, live } from './preferences.js'
 import { discoveryPrompt, quickAddPrompt } from './prompts.js'
 import { createConsoleRpc } from './rpc.js'
 import { listServers, normalizeRepository, readMcpRows, setServerEnabled } from './servers.js'
-import { openPromptSession } from './sessions.js'
+import { openPromptSession, pickedModel } from './sessions.js'
 
 export const name = PLUGIN_ID
 /**
@@ -80,10 +81,12 @@ export function apply(ctx, config) {
     .map(row => row.config?.serverName)
     .filter(item => typeof item === 'string')
 
-  const openSession = (title, text, signal) => openPromptSession({
+  const openSession = (title, text, signal, model) => openPromptSession({
     sessionController: service('sessionController'),
     workspaceRegistry: service('workspaceRegistry'),
+    agentDefaultModel: service('agentDefaultModel'),
     agentPreset: fieldValue((source() ?? {}).agentPreset) ?? DEFAULT_AGENT_PRESET,
+    model: pickedModel(model),
     title,
     text,
     signal,
@@ -144,12 +147,14 @@ export function apply(ctx, config) {
       await preference.set({ repositories: next })
       return { rowId, ...(normalized === undefined ? {} : { repository: normalized }) }
     },
-    quickAdd: ({ repositoryUrl, notes, locale }, signal) => {
+    models: () => listModelChoices({ llm: service('llm'), agentDefaultModel: service('agentDefaultModel') }),
+    quickAdd: ({ repositoryUrl, notes, locale, model }, signal) => {
       const short = repositoryUrl.replace(/^https:\/\/(?:www\.)?github\.com\//u, '')
       return openSession(
         locale === 'en' ? `Install MCP: ${short}` : `安装 MCP：${short}`,
         quickAddPrompt({ repositoryUrl, notes, existingNames: existingNames(), bundleDir: bundleDir(), locale }),
         signal,
+        model,
       )
     },
     scan: async signal => {
@@ -160,12 +165,13 @@ export function apply(ctx, config) {
       return withSize(lastScan)
     },
     lastScan: async () => withSize(await loadLastScan()),
-    analyze: async ({ locale }, signal) => {
+    analyze: async ({ locale, model }, signal) => {
       if ((await loadLastScan()) === undefined) throw new Error('MCP console: scan this computer first')
       return openSession(
         locale === 'en' ? 'Find MCP-capable software' : '检索可接入 MCP 的本机软件',
         discoveryPrompt({ inventory: inventoryText(lastScan), existingNames: existingNames(), bundleDir: bundleDir(), locale }),
         signal,
+        model,
       )
     },
   })
@@ -189,4 +195,5 @@ export { clientConfigPaths, createRunner, inventoryText, parseClientServers, rea
 export { discoveryPrompt, quickAddPrompt } from './prompts.js'
 export { MASK, redactArgs, redactConfig, redactMap } from './redact.js'
 export { listServers, normalizeRepository, readMcpRows, serverStatus, setServerEnabled, toolPrefix, toolsByServer } from './servers.js'
-export { openPromptSession, resolveDefaultWorkspace } from './sessions.js'
+export { listModelChoices } from './models.js'
+export { openPromptSession, pickedModel, resolveDefaultWorkspace, selectSessionModel } from './sessions.js'

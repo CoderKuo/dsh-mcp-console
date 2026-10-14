@@ -75,6 +75,14 @@ export const zh = {
   scanAnalyze: '交给 AI 联网分析',
   scanAnalyzing: '正在打开会话…',
   noSessions: '当前运行环境不能创建会话。',
+
+  modelTitle: '使用的模型',
+  modelProvider: '供应商',
+  modelModel: '模型',
+  modelLoading: '正在读取模型列表…',
+  modelNone: '没有可用的模型，会话将使用默认模型。',
+  modelIsDefault: '这是你的默认模型。只对这次打开的会话生效，不会改动默认设置。',
+  modelHint: '只对这次打开的会话生效，不会改动你的默认模型。',
 }
 
 export const en = {
@@ -148,4 +156,12 @@ export const en = {
   scanAnalyze: 'Analyze with AI',
   scanAnalyzing: 'Opening a session…',
   noSessions: 'Sessions cannot be created in this runtime.',
+
+  modelTitle: 'Model',
+  modelProvider: 'Provider',
+  modelModel: 'Model',
+  modelLoading: 'Loading models…',
+  modelNone: 'No model is listed; the session uses the default model.',
+  modelIsDefault: 'Your default model. It applies to this session only and does not change your default.',
+  modelHint: 'Applies to this session only; your default model is not changed.',
 }

@@ -30,7 +30,7 @@ export function acceptRepositoryUrl(value) {
  * @param options - the operations the page may call.
  * @returns a handler for `connection.rpc.handle(CHANNEL, handler)`.
  */
-export function createConsoleRpc({ status, toggle, setRepository, quickAdd, scan, lastScan, analyze }) {
+export function createConsoleRpc({ status, toggle, setRepository, models, quickAdd, scan, lastScan, analyze }) {
   const endpoints = {
     status: () => status(),
     'servers/toggle': payload => toggle(String(payload?.entryId ?? ''), payload?.enabled === true),
@@ -39,10 +39,12 @@ export function createConsoleRpc({ status, toggle, setRepository, quickAdd, scan
       repositoryUrl: acceptRepositoryUrl(payload?.repositoryUrl),
       notes: typeof payload?.notes === 'string' ? payload.notes : '',
       locale: payload?.locale === 'en' ? 'en' : 'zh',
+      model: payload?.model,
     }, signal),
+    models: () => (typeof models === 'function' ? models() : { providers: [] }),
     scan: (_payload, signal) => scan(signal),
     'scan/last': () => (typeof lastScan === 'function' ? lastScan() : null),
-    'scan/analyze': (payload, signal) => analyze({ locale: payload?.locale === 'en' ? 'en' : 'zh' }, signal),
+    'scan/analyze': (payload, signal) => analyze({ locale: payload?.locale === 'en' ? 'en' : 'zh', model: payload?.model }, signal),
   }
   return async (endpoint, payload, signal) => {
     try {

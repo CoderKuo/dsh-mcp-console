@@ -42,12 +42,45 @@ export async function resolveDefaultWorkspace(registry) {
 }
 
 /**
+ * Select a model for one Session without changing the person's default.
+ *
+ * `selectModel` is what DSH's own picker calls, and it also saves the choice
+ * as the default model. The default is read first and saved back afterwards;
+ * saves are applied in submission order, so the restore lands after the
+ * picker's own save.
+ * @param options - the session controller, the default-model service, the
+ *   Session, and the `{ provider, model }` to use.
+ */
+export async function selectSessionModel({ sessionController, agentDefaultModel, sessionId, model }) {
+  if (typeof sessionController?.selectModel !== 'function') throw new Error('MCP console: this profile cannot choose a model for a session')
+  const previous = typeof agentDefaultModel?.currentSelection === 'function' ? agentDefaultModel.currentSelection() : undefined
+  try {
+    await sessionController.selectModel({ sessionId, provider: model.provider, model: model.model })
+  } catch (error) {
+    const reason = typeof error?.code === 'string' ? error.code : error instanceof Error ? error.message : String(error)
+    throw new Error(`MCP console: the model ${model.provider} / ${model.model} cannot be used (${reason.slice(0, 120)})`)
+  }
+  // Restore even when the default still reads unchanged: the picker's save
+  // may only be queued, and saving the same value back is harmless.
+  if (previous !== undefined && typeof agentDefaultModel.saveSelection === 'function') await agentDefaultModel.saveSelection(previous)
+}
+
+/** A `{ provider, model }` the person picked, or undefined for the default model. */
+export function pickedModel(value) {
+  if (value === null || typeof value !== 'object') return undefined
+  const provider = typeof value.provider === 'string' ? value.provider.trim() : ''
+  const model = typeof value.model === 'string' ? value.model.trim() : ''
+  return provider === '' || model === '' ? undefined : { provider, model }
+}
+
+/**
  * Create a Session in the default Workspace and send it `text`.
- * @param options - the session controller, the Workspace registry, the Agent
- *   preset, the Session title, the prompt, and cancellation.
+ * @param options - the session controller, the Workspace registry, the
+ *   default-model service, the Agent preset, the model to use (the default
+ *   when absent), the Session title, the prompt, and cancellation.
  * @returns `{ sessionId, workspaceId? }`.
  */
-export async function openPromptSession({ sessionController, workspaceRegistry, agentPreset, title, text, signal }) {
+export async function openPromptSession({ sessionController, workspaceRegistry, agentDefaultModel, agentPreset, model, title, text, signal }) {
   if (sessionController === undefined) throw new Error('MCP console: the session controller is not available in this profile')
   if (typeof text !== 'string' || text.trim() === '') throw new Error('MCP console: the prompt is empty')
   const workspace = await resolveDefaultWorkspace(workspaceRegistry)
@@ -57,6 +90,8 @@ export async function openPromptSession({ sessionController, workspaceRegistry, 
     ...(preset === undefined ? {} : { agentPreset: preset }),
   })
   const sessionId = created.sessionId
+  // Chosen before the first prompt, so the first turn already runs on it.
+  if (model !== undefined) await selectSessionModel({ sessionController, agentDefaultModel, sessionId, model })
   if (typeof title === 'string' && title.trim() !== '' && typeof sessionController.rename === 'function') {
     // A title is a convenience; the Session works without it.
     await sessionController.rename({ sessionId, title: title.trim().slice(0, 80) }).catch(() => undefined)

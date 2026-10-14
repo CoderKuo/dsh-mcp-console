@@ -297,8 +297,8 @@ test('the RPC answers in envelopes and hides foreign error text', async () => {
   assert.equal(toggled.ok, false)
   assert.equal(toggled.error.message, 'MCP console: the request failed')
   assert.equal((await handler('scan/analyze', {})).error.message, 'MCP console: scan this computer first')
-  const added = await handler('quick-add', { repositoryUrl: 'https://github.com/a/b', notes: 'n', locale: 'en' })
-  assert.deepEqual(added.value.request, { repositoryUrl: 'https://github.com/a/b', notes: 'n', locale: 'en' })
+  const added = await handler('quick-add', { repositoryUrl: 'https://github.com/a/b', notes: 'n', locale: 'en', model: { provider: 'p', model: 'm' } })
+  assert.deepEqual(added.value.request, { repositoryUrl: 'https://github.com/a/b', notes: 'n', locale: 'en', model: { provider: 'p', model: 'm' } })
   assert.equal((await handler('nope', {})).error.message, 'MCP console: unknown endpoint')
   assert.deepEqual(Object.keys((await handler('nope', {})).error).sort(), ['code', 'details', 'message'])
 })
@@ -308,4 +308,68 @@ test('the Windows scan asks PowerShell for UTF-8 output', async () => {
   await scanLocal({ run: async argv => { if (argv[0] === 'powershell') script = argv.at(-1); return '' }, platform: 'win32', clientPaths: [] })
   assert.match(script, /\[Console\]::OutputEncoding = \[System\.Text\.Encoding\]::UTF8/u)
   assert.ok(script.indexOf('OutputEncoding') < script.indexOf('Get-Process'), 'set before any output')
+})
+
+// ── model choice ────────────────────────────────────────────────────────────
+
+test('the model listing covers every provider route and the current default', async () => {
+  const { listModelChoices } = await import('../src/models.js')
+  const llm = {
+    listProviders: () => [{ id: 'deepseek', name: 'DeepSeek' }, { id: 'geek2api', name: 'Geek2API' }, { id: 'slow', name: 'Slow' }],
+    listModels: id => (id === 'slow' ? new Promise(() => undefined) : Promise.resolve(id === 'deepseek' ? [{ provider: id, id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' }] : [{ provider: id, id: 'gpt-6.1-sol', name: '' }])),
+  }
+  const choices = await listModelChoices({ llm, agentDefaultModel: { currentSelection: () => ({ provider: 'deepseek', model: 'deepseek-v4-pro', reasoningEffort: 'high' }) }, timeoutMs: 50 })
+  assert.deepEqual(choices.providers, [
+    { id: 'deepseek', name: 'DeepSeek', models: [{ id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' }] },
+    { id: 'geek2api', name: 'Geek2API', models: [{ id: 'gpt-6.1-sol', name: 'gpt-6.1-sol' }] },
+    { id: 'slow', name: 'Slow', models: [], error: true },
+  ])
+  assert.deepEqual(choices.default, { provider: 'deepseek', model: 'deepseek-v4-pro' })
+  assert.deepEqual((await listModelChoices({})).providers, [])
+})
+
+test('a chosen model applies to the new session and the default is restored', async () => {
+  const { selectSessionModel, pickedModel } = await import('../src/sessions.js')
+  const order = []
+  let saved = { provider: 'deepseek', model: 'deepseek-v4-pro' }
+  const agentDefaultModel = {
+    currentSelection: () => ({ ...saved }),
+    saveSelection: async next => { order.push(['save', next.model]); saved = { ...next } },
+  }
+  const sessionController = {
+    selectModel: async request => {
+      order.push(['select', request.model])
+      // DSH's picker saves the choice as the default.
+      await agentDefaultModel.saveSelection({ provider: request.provider, model: request.model })
+      return { selected: request }
+    },
+  }
+  await selectSessionModel({ sessionController, agentDefaultModel, sessionId: 's1', model: { provider: 'geek2api', model: 'gpt-6.1-sol' } })
+  assert.deepEqual(order, [['select', 'gpt-6.1-sol'], ['save', 'gpt-6.1-sol'], ['save', 'deepseek-v4-pro']])
+  assert.deepEqual(saved, { provider: 'deepseek', model: 'deepseek-v4-pro' }, 'the default is what it was')
+
+  assert.deepEqual(pickedModel({ provider: ' geek2api ', model: 'gpt-6.1-sol' }), { provider: 'geek2api', model: 'gpt-6.1-sol' })
+  assert.equal(pickedModel({ provider: 'x' }), undefined)
+  assert.equal(pickedModel('x'), undefined)
+
+  const refusing = { selectModel: async () => { throw Object.assign(new Error('nope'), { code: 'session/model-unavailable' }) } }
+  await assert.rejects(
+    () => selectSessionModel({ sessionController: refusing, agentDefaultModel, sessionId: 's1', model: { provider: 'p', model: 'm' } }),
+    /^Error: MCP console: the model p \/ m cannot be used \(session\/model-unavailable\)$/u,
+  )
+})
+
+test('the model is selected before the first prompt', async () => {
+  const calls = []
+  const sessionController = {
+    create: async () => { calls.push('create'); return { sessionId: 's' } },
+    selectModel: async () => { calls.push('select') },
+    rename: async () => { calls.push('rename') },
+    prompt: async () => { calls.push('prompt') },
+  }
+  await openPromptSession({ sessionController, text: 'go', title: 't', model: { provider: 'p', model: 'm' } })
+  assert.deepEqual(calls, ['create', 'select', 'rename', 'prompt'])
+  calls.length = 0
+  await openPromptSession({ sessionController, text: 'go' })
+  assert.deepEqual(calls, ['create', 'prompt'], 'no choice keeps the default model')
 })
