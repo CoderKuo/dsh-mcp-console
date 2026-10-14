@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.2
+
+- The local scan result is kept: it survives leaving the page and restarting DSH (saved under `<DSH_HOME>/storages/dsh-mcp-console/last-scan.json`), and the page shows when it ran with a Scan again button. The AI analysis uses the saved scan.
+- Fixed garbled non-ASCII names (e.g. Chinese application and service names) in the Windows scan and in the inventory sent to the AI: PowerShell now writes UTF-8 instead of the console code page.
+
 ## 0.1.1
 
 - Fixed the repository URL input of AI quick add being about 200px tall: inputs inside a stacked field no longer grow along the column.

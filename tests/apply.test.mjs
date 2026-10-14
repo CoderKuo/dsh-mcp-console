@@ -88,3 +88,44 @@ test('a profile without the Plugin Manager or sessions still serves a read-only 
   const added = await host.call('quick-add', { repositoryUrl: 'https://github.com/a/b' })
   assert.equal(added.error.message, 'MCP console: the session controller is not available in this profile')
 })
+
+test('a scan is kept on disk and served again after the plugin restarts', async () => {
+  const { mkdtemp, readFile } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { PassThrough } = await import('node:stream')
+  const home = await mkdtemp(join(tmpdir(), 'mcp-console-home-'))
+  const scripts = []
+  const subprocess = {
+    resolveExecutable: async name => name,
+    spawn: spec => {
+      scripts.push(spec.argv)
+      const stdout = new PassThrough()
+      const reply = spec.argv[0] === 'powershell' ? JSON.stringify({ apps: [{ name: 'NVIDIA 图形驱动程序', publisher: 'NVIDIA' }] }) : ''
+      queueMicrotask(() => stdout.end(Buffer.from(reply, 'utf8')))
+      return { stdout, done: new Promise(resolve => stdout.on('end', () => resolve({ code: 0 }))), waitForExit: async () => true }
+    },
+  }
+  const services = { loader: loaderWith([]), profileContext: { dir: join(home, 'profiles', 'desktop'), home }, subprocess }
+
+  const first = fakeHost({ services })
+  apply(first.ctx, Config({}))
+  assert.equal((await first.call('scan/last')).value, null, 'nothing scanned yet')
+  const scanned = await first.call('scan')
+  assert.equal(scanned.ok, true)
+  assert.equal(scanned.value.apps[0].name, 'NVIDIA 图形驱动程序')
+  assert.ok(scanned.value.inventoryChars > 0)
+  const powershell = scripts.find(argv => argv[0] === 'powershell')
+  if (process.platform === 'win32') assert.match(powershell.at(-1), /\[Console\]::OutputEncoding = \[System\.Text\.Encoding\]::UTF8/u)
+  const saved = JSON.parse(await readFile(join(home, 'storages', 'dsh-mcp-console', 'last-scan.json'), 'utf8'))
+  assert.equal(saved.scannedAt, scanned.value.scannedAt)
+
+  // A new instance, as after a restart, serves the same scan and can analyze it.
+  const second = fakeHost({ services })
+  apply(second.ctx, Config({}))
+  const last = await second.call('scan/last')
+  assert.equal(last.value.scannedAt, scanned.value.scannedAt)
+  assert.equal(last.value.apps[0].name, 'NVIDIA 图形驱动程序')
+  const analyzed = await second.call('scan/analyze', { locale: 'zh' })
+  assert.equal(analyzed.error.message, 'MCP console: the session controller is not available in this profile', 'the saved scan is accepted; only the missing controller stops it')
+})

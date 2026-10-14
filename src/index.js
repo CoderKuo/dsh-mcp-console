@@ -11,8 +11,9 @@
  * @module dsh-mcp-console
  */
 
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 import z from '@deepseek-ai/schemastery'
 
@@ -88,8 +89,35 @@ export function apply(ctx, config) {
     signal,
   })
 
-  /** The last local scan; the AI analysis reuses it rather than scanning twice. */
+  /**
+   * The last local scan. It describes the machine, not the profile, so it is
+   * kept in one file under DSH_HOME and survives leaving the page and
+   * restarting; the AI analysis reuses it rather than scanning twice.
+   */
   let lastScan
+  const scanFile = () => join(dshHome(), 'storages', 'dsh-mcp-console', 'last-scan.json')
+  const loadLastScan = async () => {
+    if (lastScan !== undefined) return lastScan
+    try {
+      const saved = JSON.parse(await readFile(scanFile(), 'utf8'))
+      if (saved !== null && typeof saved === 'object' && typeof saved.scannedAt === 'number') lastScan = saved
+    } catch {
+      // No scan yet, or an unreadable file: the page offers a fresh scan.
+    }
+    return lastScan
+  }
+  const saveLastScan = async scan => {
+    const file = scanFile()
+    try {
+      await mkdir(dirname(file), { recursive: true })
+      const temp = `${file}.${process.pid}.tmp`
+      await writeFile(temp, JSON.stringify(scan), 'utf8')
+      await rename(temp, file)
+    } catch (error) {
+      ctx.logger?.warn?.('mcp-console: could not save the scan result: %s', error.message)
+    }
+  }
+  const withSize = scan => (scan === undefined ? null : { ...scan, inventoryChars: inventoryText(scan).length })
 
   const handler = createConsoleRpc({
     status: async () => ({
@@ -128,10 +156,12 @@ export function apply(ctx, config) {
       const run = createRunner(service('subprocess'), { timeoutMs: config?.scanTimeoutMs ?? DEFAULT_SCAN_TIMEOUT_MS })
       signal?.throwIfAborted?.()
       lastScan = await scanLocal({ run })
-      return { ...lastScan, inventoryChars: inventoryText(lastScan).length }
+      await saveLastScan(lastScan)
+      return withSize(lastScan)
     },
-    analyze: ({ locale }, signal) => {
-      if (lastScan === undefined) throw new Error('MCP console: scan this computer first')
+    lastScan: async () => withSize(await loadLastScan()),
+    analyze: async ({ locale }, signal) => {
+      if ((await loadLastScan()) === undefined) throw new Error('MCP console: scan this computer first')
       return openSession(
         locale === 'en' ? 'Find MCP-capable software' : '检索可接入 MCP 的本机软件',
         discoveryPrompt({ inventory: inventoryText(lastScan), existingNames: existingNames(), bundleDir: bundleDir(), locale }),

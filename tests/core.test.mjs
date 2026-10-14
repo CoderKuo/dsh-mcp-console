@@ -302,3 +302,10 @@ test('the RPC answers in envelopes and hides foreign error text', async () => {
   assert.equal((await handler('nope', {})).error.message, 'MCP console: unknown endpoint')
   assert.deepEqual(Object.keys((await handler('nope', {})).error).sort(), ['code', 'details', 'message'])
 })
+
+test('the Windows scan asks PowerShell for UTF-8 output', async () => {
+  let script = ''
+  await scanLocal({ run: async argv => { if (argv[0] === 'powershell') script = argv.at(-1); return '' }, platform: 'win32', clientPaths: [] })
+  assert.match(script, /\[Console\]::OutputEncoding = \[System\.Text\.Encoding\]::UTF8/u)
+  assert.ok(script.indexOf('OutputEncoding') < script.indexOf('Get-Process'), 'set before any output')
+})

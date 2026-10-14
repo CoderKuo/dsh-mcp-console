@@ -28,6 +28,10 @@ const MAX_ITEMS = 200
 
 const WINDOWS_SCRIPT = String.raw`
 $ErrorActionPreference = 'SilentlyContinue'
+# Windows PowerShell writes stdout in the console code page (GBK on Chinese
+# Windows); the host decodes UTF-8, so non-ASCII names would arrive garbled.
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
 $sys = @('C:\Windows', 'C:\Program Files\WindowsApps', 'C:\Program Files\Windows')
 function IsSystem($path) { if (-not $path) { return $true }; foreach ($p in $sys) { if ($path -like "$p*") { return $true } }; return $false }
 $procs = Get-Process | Where-Object { $_.Path -and -not (IsSystem $_.Path) } | ForEach-Object {

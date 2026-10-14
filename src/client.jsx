@@ -281,6 +281,15 @@ function ScanCard({ call, t, openSession, sessionsAvailable }) {
   const [analyzing, setAnalyzing] = react.useState(false)
   const [error, setError] = react.useState()
 
+  // The host keeps the last scan; show it instead of scanning again.
+  react.useEffect(() => {
+    let live = true
+    call('scan/last').then(saved => {
+      if (live && saved) setScan(current => current ?? saved)
+    }).catch(() => undefined)
+    return () => { live = false }
+  }, [call])
+
   const start = () => {
     setBusy(true)
     setError(undefined)
@@ -301,10 +310,11 @@ function ScanCard({ call, t, openSession, sessionsAvailable }) {
 
   const clientServers = (scan?.clients ?? []).flatMap(client => client.servers.map(server => ({ ...server, client: client.client })))
   return (
-    <Card title={t('scanTitle')} aside={<Button disabled={busy} onClick={start}>{busy ? t('scanning') : t('scanStart')}</Button>}>
+    <Card title={t('scanTitle')} aside={<Button disabled={busy} onClick={start}>{busy ? t('scanning') : scan === undefined ? t('scanStart') : t('scanAgain')}</Button>}>
       <p className="mcpc-note">{t('scanIntro')}</p>
       {scan !== undefined && (
         <>
+          <span className="mcpc-meta">{fill(t('scanAt'), { time: new Date(scan.scannedAt).toLocaleString() })}</span>
           <span className="mcpc-meta">
             {fill(t('scanSummary'), {
               apps: scan.apps.length,
