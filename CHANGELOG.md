@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1
+
+- Fixed the repository URL input of AI quick add being about 200px tall: inputs inside a stacked field no longer grow along the column.
+
 ## 0.1.0
 
 First release.
