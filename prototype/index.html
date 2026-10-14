@@ -1,0 +1,686 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MCP 管理 · 重设计原型</title>
+<style>
+/* 布局：DSH 主区域里的一列（最宽 780px），顶部标题 + 三个标签；编辑用右侧抽屉 */
+:root {
+  --bg: #f6f6f7;
+  --layer: #ffffff;
+  --layer-sunk: #f1f1f3;
+  --line: rgba(20, 20, 30, .10);
+  --line-strong: rgba(20, 20, 30, .18);
+  --fg: #1c1c22;
+  --fg2: #4a4a55;
+  --fg3: #8a8a96;
+  --accent: #3964fe;
+  --accent-soft: rgba(57, 100, 254, .10);
+  --ok: #1f9d55;
+  --ok-soft: rgba(31, 157, 85, .12);
+  --warn: #c7771a;
+  --warn-soft: rgba(199, 119, 26, .12);
+  --bad: #e03131;
+  --bad-soft: rgba(224, 49, 49, .10);
+  --idle: #a0a0ab;
+  --hover: rgba(20, 20, 30, .05);
+  --shadow: 0 8px 30px rgba(20, 20, 40, .12);
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #17171b; --layer: #212127; --layer-sunk: #1b1b20; --line: rgba(255,255,255,.08); --line-strong: rgba(255,255,255,.16);
+  --fg: #ececf1; --fg2: #b4b4bf; --fg3: #7d7d89; --accent: #6b8cff; --accent-soft: rgba(107,140,255,.16);
+  --ok: #3fbf74; --ok-soft: rgba(63,191,116,.14); --warn: #e3a04a; --warn-soft: rgba(227,160,74,.14);
+  --bad: #ff6b6b; --bad-soft: rgba(255,107,107,.13); --idle: #6b6b76; --hover: rgba(255,255,255,.05); --shadow: 0 8px 30px rgba(0,0,0,.45);
+  color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #17171b; --layer: #212127; --layer-sunk: #1b1b20; --line: rgba(255,255,255,.08); --line-strong: rgba(255,255,255,.16);
+  --fg: #ececf1; --fg2: #b4b4bf; --fg3: #7d7d89; --accent: #6b8cff; --accent-soft: rgba(107,140,255,.16);
+  --ok: #3fbf74; --ok-soft: rgba(63,191,116,.14); --warn: #e3a04a; --warn-soft: rgba(227,160,74,.14);
+  --bad: #ff6b6b; --bad-soft: rgba(255,107,107,.13); --idle: #6b6b76; --hover: rgba(255,255,255,.05); --shadow: 0 8px 30px rgba(0,0,0,.45);
+  color-scheme: dark }
+:root[data-theme="light"] { color-scheme: light }
+
+* { box-sizing: border-box }
+html, body { margin: 0 }
+body { background: var(--bg); color: var(--fg); font: 14px/22px var(--sans); }
+button, input, select, textarea { font: inherit; color: inherit }
+.wrap { max-width: 780px; margin: 0 auto; padding-block: 28px 80px; padding-inline: 20px; display: flex; flex-direction: column; gap: 18px }
+
+/* 原型说明条 */
+.proto { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 12px; border: 1px dashed var(--line-strong); border-radius: var(--r-md); color: var(--fg3); font-size: 12px; line-height: 18px }
+.proto b { color: var(--fg2); font-weight: 600 }
+.proto .sp { flex: 1 }
+
+/* 页头 */
+.head { display: flex; align-items: center; gap: 12px }
+.head h1 { margin: 0; font-size: 20px; line-height: 28px; font-weight: 650; letter-spacing: -.01em }
+.head .sub { color: var(--fg3); font-size: 12px }
+.head .sp { flex: 1 }
+
+/* 标签 */
+.tabs { display: flex; gap: 2px; padding: 3px; border-radius: var(--r-md); background: var(--layer-sunk); align-self: flex-start; border: 1px solid var(--line) }
+.tab { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 14px; border: 0; border-radius: 9px; background: transparent; color: var(--fg2); font-size: 13px; cursor: pointer }
+.tab:hover { color: var(--fg) }
+.tab[aria-selected="true"] { background: var(--layer); color: var(--fg); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.08) }
+.tab .n { min-width: 18px; padding: 0 5px; border-radius: 99px; background: var(--hover); color: var(--fg3); font-size: 11px; line-height: 18px; text-align: center; font-variant-numeric: tabular-nums }
+.tab .n.bad { background: var(--bad-soft); color: var(--bad) }
+
+/* 按钮 */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 30px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: transparent; font-size: 13px; white-space: nowrap; cursor: pointer }
+.btn:hover:not(:disabled) { background: var(--hover) }
+.btn:disabled { opacity: .45; cursor: not-allowed }
+.btn.primary { border-color: transparent; background: var(--accent); color: #fff }
+.btn.primary:hover:not(:disabled) { filter: brightness(1.06); background: var(--accent) }
+.btn.ghost { border-color: transparent; color: var(--fg2) }
+.btn.danger { border-color: transparent; color: var(--bad) }
+.btn.lg { height: 34px; padding: 0 16px; border-radius: 10px }
+.icon-btn { width: 30px; padding: 0; border-color: transparent; color: var(--fg3) }
+.btn:focus-visible, .tab:focus-visible, .row-main:focus-visible, .src:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+
+/* 面板 */
+.panel { background: var(--layer); border: 1px solid var(--line); border-radius: var(--r-lg) }
+.panel-head { display: flex; align-items: center; gap: 10px; padding: 14px 16px 10px }
+.panel-head h2 { margin: 0; font-size: 14px; font-weight: 600 }
+.panel-head .sp { flex: 1 }
+.muted { color: var(--fg3); font-size: 12px; line-height: 18px }
+.note { margin: 0; color: var(--fg3); font-size: 12px; line-height: 18px }
+
+/* 状态 */
+.dot { flex: none; width: 8px; height: 8px; border-radius: 50% }
+.dot.ok { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft) }
+.dot.bad { background: var(--bad); box-shadow: 0 0 0 3px var(--bad-soft) }
+.dot.wait { background: var(--warn); box-shadow: 0 0 0 3px var(--warn-soft); animation: pulse 1.4s ease-in-out infinite }
+.dot.off { background: transparent; border: 1.5px solid var(--idle) }
+@keyframes pulse { 50% { opacity: .35 } }
+@media (prefers-reduced-motion: reduce) { .dot.wait { animation: none } }
+.tag { display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 5px; color: var(--fg2); font: 11px/18px var(--mono); white-space: nowrap }
+.tag.soft { border-color: transparent; background: var(--hover) }
+.chip { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 99px; font-size: 11px; font-weight: 500; white-space: nowrap }
+.chip.ok { background: var(--ok-soft); color: var(--ok) }
+.chip.bad { background: var(--bad-soft); color: var(--bad) }
+.chip.warn { background: var(--warn-soft); color: var(--warn) }
+.chip.info { background: var(--accent-soft); color: var(--accent) }
+.chip.idle { background: var(--hover); color: var(--fg3) }
+
+/* 开关 */
+.switch { position: relative; flex: none; width: 34px; height: 20px; border: 0; border-radius: 99px; background: var(--line-strong); cursor: pointer; transition: background .15s }
+.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: transform .15s }
+.switch[aria-checked="true"] { background: var(--accent) }
+.switch[aria-checked="true"]::after { transform: translateX(14px) }
+
+/* 已安装：列表 */
+.summary { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 0 16px 12px; color: var(--fg3); font-size: 12px }
+.summary b { color: var(--fg); font-weight: 600; font-variant-numeric: tabular-nums; margin-right: 3px }
+.list { border-top: 1px solid var(--line) }
+.row { border-bottom: 1px solid var(--line) }
+.row:last-child { border-bottom: 0 }
+.row-line { display: flex; align-items: center; gap: 10px; padding: 10px 12px 10px 16px }
+.row-main { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; padding: 2px 0; border: 0; background: transparent; text-align: left; cursor: pointer; border-radius: 6px }
+.row-name { font-weight: 600; white-space: nowrap }
+.row-meta { overflow: hidden; color: var(--fg3); font-size: 12px; white-space: nowrap; text-overflow: ellipsis; min-width: 0 }
+.row-meta.bad { color: var(--bad) }
+.row-caret { flex: none; color: var(--fg3); transition: transform .15s }
+.row[data-open="true"] .row-caret { transform: rotate(90deg) }
+.row-detail { display: none; padding: 2px 16px 14px 34px }
+.row[data-open="true"] .row-detail { display: grid; gap: 10px }
+.kv { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 6px 12px; margin: 0; font-size: 12px; line-height: 20px }
+.kv dt { color: var(--fg3) }
+.kv dd { margin: 0; min-width: 0; color: var(--fg2); word-break: break-all }
+.kv .mono { font-family: var(--mono); font-size: 11.5px }
+.err { margin: 0; padding: 8px 10px; border-radius: var(--r-sm); background: var(--bad-soft); color: var(--bad); font: 11.5px/18px var(--mono); white-space: pre-wrap; word-break: break-all }
+.tools { display: flex; flex-wrap: wrap; gap: 4px }
+.menu-wrap { position: relative }
+.menu { position: absolute; right: 0; top: 34px; z-index: 5; min-width: 168px; padding: 4px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--layer); box-shadow: var(--shadow) }
+.menu button { display: flex; width: 100%; align-items: center; gap: 8px; height: 32px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; font-size: 13px; text-align: left; cursor: pointer }
+.menu button:hover { background: var(--hover) }
+.menu button.danger { color: var(--bad) }
+.menu hr { margin: 4px 2px; border: 0; border-top: 1px solid var(--line) }
+.confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; border-radius: var(--r-sm); background: var(--bad-soft); font-size: 12px }
+.empty { display: grid; justify-items: center; gap: 8px; padding: 36px 16px; text-align: center }
+
+/* 添加：来源选择 */
+.sources { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; padding: 0 16px 16px }
+.src { display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--layer); text-align: left; cursor: pointer }
+.src:hover { border-color: var(--line-strong); background: var(--hover) }
+.src[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft) }
+.src svg { color: var(--accent) }
+.src b { font-size: 13px }
+.src span { color: var(--fg3); font-size: 12px; line-height: 17px }
+.step { display: grid; gap: 14px; padding: 16px; border-top: 1px solid var(--line) }
+.crumb { display: flex; align-items: center; gap: 6px; color: var(--fg3); font-size: 12px }
+.crumb button { padding: 0; border: 0; background: none; color: var(--accent); cursor: pointer; font-size: 12px }
+
+/* 表单 */
+.field { display: grid; gap: 5px; min-width: 0 }
+.label { color: var(--fg2); font-size: 12px; font-weight: 500 }
+.input { width: 100%; min-width: 0; height: 32px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--layer-sunk); font-size: 13px; outline: none }
+.input:focus { border-color: var(--accent); background: var(--layer) }
+.input.mono { font-family: var(--mono); font-size: 12.5px }
+textarea.input { height: auto; min-height: 64px; padding: 8px 10px; resize: vertical }
+.hint { color: var(--fg3); font-size: 12px; line-height: 18px }
+.warn-line { display: flex; gap: 6px; color: var(--warn); font-size: 12px; line-height: 18px }
+.seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: 10px; background: var(--layer-sunk); border: 1px solid var(--line); justify-self: start }
+.seg button { height: 28px; padding: 0 12px; border: 0; border-radius: 8px; background: transparent; color: var(--fg2); font-size: 12.5px; cursor: pointer }
+.seg button[aria-checked="true"] { background: var(--layer); color: var(--fg); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.08) }
+.pairs { display: grid; gap: 6px }
+.pair { display: grid; grid-template-columns: minmax(0, 150px) minmax(0, 1fr) auto auto; align-items: center; gap: 6px }
+.pair .input { height: 30px }
+.check { display: inline-flex; align-items: center; gap: 5px; color: var(--fg2); font-size: 12px; white-space: nowrap; cursor: pointer }
+.check input { margin: 0; accent-color: var(--accent) }
+details.adv { border: 1px solid var(--line); border-radius: var(--r-md) }
+details.adv > summary { display: flex; align-items: center; gap: 8px; padding: 9px 12px; color: var(--fg2); font-size: 12.5px; cursor: pointer; list-style: none }
+details.adv > summary::-webkit-details-marker { display: none }
+details.adv > summary::before { content: "›"; display: inline-block; color: var(--fg3); transition: transform .15s }
+details.adv[open] > summary::before { transform: rotate(90deg) }
+details.adv > div { display: grid; gap: 12px; padding: 4px 12px 12px }
+.result { display: grid; gap: 8px; padding: 12px; border-radius: var(--r-md); font-size: 13px }
+.result.ok { background: var(--ok-soft) }
+.result.bad { background: var(--bad-soft) }
+.result .t { display: flex; align-items: center; gap: 8px; font-weight: 600 }
+.result.ok .t { color: var(--ok) }
+.result.bad .t { color: var(--bad) }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px }
+.actions .sp { flex: 1 }
+.spinner { width: 14px; height: 14px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .7s linear infinite }
+@keyframes spin { to { transform: rotate(360deg) } }
+
+/* 搜索结果 */
+.search { display: flex; gap: 8px }
+.results { display: grid; gap: 8px }
+.res { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: var(--r-md) }
+.res-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 8px }
+.res-top b { font-size: 13.5px }
+.res-top a { color: var(--accent); font-size: 12px; text-decoration: none }
+.opt { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding-top: 8px; border-top: 1px solid var(--line) }
+.opt code { overflow: hidden; color: var(--fg2); font: 12px/18px var(--mono); white-space: nowrap; text-overflow: ellipsis }
+.opt .r { display: flex; align-items: center; gap: 6px }
+
+/* 导入 */
+.imp { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-md) }
+.imp code { display: block; overflow: hidden; color: var(--fg3); font: 11.5px/18px var(--mono); white-space: nowrap; text-overflow: ellipsis }
+.imp .title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px }
+
+/* 发现 */
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; padding: 0 16px 14px }
+.stat { padding: 10px 12px; border-radius: var(--r-md); background: var(--layer-sunk) }
+.stat b { display: block; font-size: 20px; line-height: 28px; font-variant-numeric: tabular-nums }
+.stat span { color: var(--fg3); font-size: 12px }
+.group { border-top: 1px solid var(--line) }
+.group > summary { display: flex; align-items: center; gap: 8px; padding: 10px 16px; cursor: pointer; list-style: none; font-size: 13px }
+.group > summary::-webkit-details-marker { display: none }
+.group > summary::before { content: "›"; color: var(--fg3); transition: transform .15s }
+.group[open] > summary::before { transform: rotate(90deg) }
+.group ul { margin: 0; padding: 0 16px 12px 34px; columns: 2; column-gap: 24px; color: var(--fg2); font-size: 12px; line-height: 22px }
+.runtimes { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 14px }
+
+/* 抽屉 */
+.scrim { position: fixed; inset: 0; z-index: 20; background: rgba(10, 10, 20, .32) }
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; z-index: 21; display: flex; flex-direction: column; width: min(520px, 100%); background: var(--layer); box-shadow: var(--shadow) }
+.drawer-head { display: flex; align-items: center; gap: 10px; padding: 16px 18px; border-bottom: 1px solid var(--line) }
+.drawer-head h2 { margin: 0; font-size: 15px }
+.drawer-body { flex: 1; overflow: auto; display: grid; align-content: start; gap: 14px; padding: 16px 18px }
+.drawer-foot { padding: 12px 18px; border-top: 1px solid var(--line) }
+
+/* 提示 */
+.toast { position: fixed; left: 50%; bottom: 24px; z-index: 30; transform: translateX(-50%); padding: 8px 14px; border-radius: 10px; background: var(--fg); color: var(--bg); font-size: 13px; box-shadow: var(--shadow) }
+
+@media (max-width: 640px) {
+  .sources, .stats { grid-template-columns: repeat(2, minmax(0, 1fr)) }
+  .pair { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .group ul { columns: 1 }
+  .row-meta { display: none }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="proto">
+    <span><b>原型</b>：只看布局和交互，数据是假的，不连 DSH。</span>
+    <span class="sp"></span>
+    <button class="btn ghost" id="theme" type="button">切换深色 / 浅色</button>
+    <button class="btn ghost" id="toggle-empty" type="button">看空状态</button>
+  </div>
+
+  <header class="head">
+    <div>
+      <h1>MCP 管理</h1>
+      <div class="sub">当前 profile：desktop</div>
+    </div>
+    <span class="sp"></span>
+    <button class="btn primary lg" id="add-top" type="button">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      添加 MCP
+    </button>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="页面">
+    <button class="tab" role="tab" data-tab="installed" aria-selected="true">已安装 <span class="n" id="count-installed">5</span></button>
+    <button class="tab" role="tab" data-tab="add" aria-selected="false">添加</button>
+    <button class="tab" role="tab" data-tab="discover" aria-selected="false">发现</button>
+  </nav>
+
+  <main id="view"></main>
+</div>
+<div id="layer"></div>
+
+<script>
+const $ = (sel, root = document) => root.querySelector(sel)
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+const ICON = {
+  caret: '<svg class="row-caret" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>',
+  more: '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>',
+  search: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-3.5-3.5"/></svg>',
+  pen: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></svg>',
+  spark: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 16l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7z"/></svg>',
+  import: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>',
+  x: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+}
+
+// ── 假数据 ──────────────────────────────────────────────────────────────────
+const servers = [
+  { id: 'ida', name: 'ida-pro-mcp', status: 'failed', enabled: true, transport: 'stdio', command: 'C:\\Python312\\python.exe C:\\ida-mcp\\server.py --port 13337', env: [['IDA_HOME', '明文']], tools: [], source: '@local/mcp-ida-pro-mcp（从 Claude Code 导入）', editable: true,
+    error: 'ConnectionRefusedError: [WinError 10061] 由于目标计算机积极拒绝，无法连接。\n（IDA 没有打开，或插件没有启动）' },
+  { id: 'ctx', name: 'context7', status: 'connected', enabled: true, transport: 'stdio', command: 'npx -y @upstash/context7-mcp@4.4.1', env: [['CONTEXT7_API_KEY', '读环境变量']], tools: ['resolve-library-id', 'query-docs'], source: '@local/mcp-context7（从目录添加）', repo: 'https://github.com/upstash/context7', editable: true },
+  { id: 'gh', name: 'github', status: 'connected', enabled: true, transport: 'http', url: 'https://api.githubcopilot.com/mcp/', headers: [['Authorization', '读环境变量']], tools: ['get_me', 'search_repositories', 'get_file_contents', 'create_issue', 'list_pull_requests', 'create_pull_request', 'merge_pull_request', 'search_code', '…另外 18 个'], toolCount: 26, source: '@local/mcp-github（AI 安装）', repo: 'https://github.com/github/github-mcp-server', editable: true },
+  { id: 'time', name: 'time', status: 'starting', enabled: true, transport: 'stdio', command: 'uvx mcp-server-time --local-timezone Asia/Shanghai', env: [], tools: [], source: '@local/mcp-time（手动添加）', editable: true },
+  { id: 'mem', name: 'memory', status: 'disabled', enabled: false, transport: 'stdio', command: 'npx -y @modelcontextprotocol/server-memory', env: [], tools: [], source: 'profile 自带（不能编辑）', editable: false },
+]
+const STATUS = {
+  failed: { dot: 'bad', text: '连接失败', order: 0 },
+  starting: { dot: 'wait', text: '连接中', order: 1 },
+  connected: { dot: 'ok', text: '已连接', order: 2 },
+  disabled: { dot: 'off', text: '已禁用', order: 3 },
+}
+const registry = [
+  { name: 'io.github.upstash/context7', title: 'Context7', version: '4.4.1', desc: '为任何提示提供最新的代码文档。', repo: 'https://github.com/upstash/context7',
+    options: [
+      { kind: 'npm', line: 'npx -y @upstash/context7-mcp@4.4.1', form: { transport: 'stdio', name: 'context7', commandLine: 'npx -y @upstash/context7-mcp@4.4.1', env: [{ name: 'CONTEXT7_API_KEY', value: 'CONTEXT7_API_KEY', fromEnv: true, desc: 'API 密钥（可选，提高速率限制）' }] } },
+      { kind: '远程', line: 'https://mcp.context7.com/mcp', form: { transport: 'http', name: 'context7', url: 'https://mcp.context7.com/mcp', headers: [] } },
+    ] },
+  { name: 'io.github.github/github-mcp-server', title: 'GitHub', version: '0.20.0', desc: 'GitHub 官方 MCP：仓库、Issue、PR、代码搜索。', repo: 'https://github.com/github/github-mcp-server',
+    options: [
+      { kind: 'Docker', line: 'docker run -i --rm -e GITHUB_PERSONAL_ACCESS_TOKEN ghcr.io/github/github-mcp-server:0.20.0', form: { transport: 'stdio', name: 'github', commandLine: 'docker run -i --rm -e GITHUB_PERSONAL_ACCESS_TOKEN ghcr.io/github/github-mcp-server:0.20.0', env: [{ name: 'GITHUB_PERSONAL_ACCESS_TOKEN', value: 'GITHUB_PERSONAL_ACCESS_TOKEN', fromEnv: true, desc: 'GitHub 个人访问令牌' }] } },
+      { kind: '远程', line: 'https://api.githubcopilot.com/mcp/', form: { transport: 'http', name: 'github', url: 'https://api.githubcopilot.com/mcp/', headers: [{ name: 'Authorization', value: 'Bearer ${GITHUB_TOKEN}', fromEnv: true }] } },
+    ] },
+  { name: 'io.github.modelcontextprotocol/time', title: 'Time', version: '2025.9.25', desc: '时间和时区换算。', repo: 'https://github.com/modelcontextprotocol/servers',
+    options: [
+      { kind: 'PyPI', line: 'uvx mcp-server-time==2025.9.25', needs: 'uvx', form: { transport: 'stdio', name: 'time', commandLine: 'uvx mcp-server-time==2025.9.25', env: [] } },
+    ] },
+]
+const clients = [
+  { name: 'ida-pro-mcp', line: 'C:\\Python312\\python.exe C:\\ida-mcp\\server.py', clients: ['Claude Code', 'Cursor', 'Windsurf'], present: true },
+  { name: 'filesystem', line: 'npx -y @modelcontextprotocol/server-filesystem D:\\work', clients: ['Claude Desktop'] },
+  { name: 'playwright', line: 'npx -y @playwright/mcp@latest', clients: ['Cursor', 'VS Code'] },
+  { name: 'sentry', line: 'https://mcp.sentry.dev/mcp', clients: ['Claude Code'], http: true },
+]
+const runtimes = [['node', '24.18.1'], ['npx', '有'], ['uvx', null], ['python', '3.12.4'], ['docker', '28.3.2']]
+
+// ── 状态 ────────────────────────────────────────────────────────────────────
+const state = { tab: 'installed', open: new Set(['ida']), menu: null, confirm: null, source: null, form: null, origin: null, test: null, testing: false, query: 'github', searched: true, picked: new Set(['filesystem', 'playwright']), empty: false, aiSource: '' }
+let toastTimer
+function toast(text) {
+  const old = $('.toast'); if (old) old.remove()
+  const el = document.createElement('div'); el.className = 'toast'; el.textContent = text; document.body.append(el)
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.remove(), 2200)
+}
+
+// ── 已安装 ──────────────────────────────────────────────────────────────────
+function installedView() {
+  const list = state.empty ? [] : [...servers].sort((a, b) => STATUS[a.status].order - STATUS[b.status].order)
+  if (list.length === 0) {
+    return `<section class="panel"><div class="empty">
+      <b>还没有 MCP 服务器</b>
+      <p class="note">MCP 服务器让 AI 能使用外部工具，比如查文档、操作 GitHub、读写文件。</p>
+      <div class="actions"><button class="btn primary" data-go="add">添加第一个</button><button class="btn" data-go="discover">看看本机能接什么</button></div>
+    </div></section>`
+  }
+  const count = s => list.filter(x => x.status === s).length
+  return `<section class="panel">
+    <div class="panel-head">
+      <h2>已安装</h2><span class="sp"></span>
+      <button class="btn ghost" data-act="export">导出</button>
+      <button class="btn ghost" data-act="refresh">刷新</button>
+    </div>
+    <div class="summary">
+      <span><b>${count('connected')}</b>已连接</span>
+      <span><b style="color:var(--bad)">${count('failed')}</b>失败</span>
+      <span><b>${count('starting')}</b>连接中</span>
+      <span><b>${count('disabled')}</b>已禁用</span>
+      <span><b>${list.reduce((n, s) => n + (s.toolCount ?? s.tools.length), 0)}</b>个工具</span>
+    </div>
+    <div class="list">${list.map(rowView).join('')}</div>
+  </section>`
+}
+function rowView(s) {
+  const st = STATUS[s.status]
+  const open = state.open.has(s.id)
+  const toolCount = s.toolCount ?? s.tools.length
+  const meta = s.status === 'failed' ? '<span class="row-meta bad">连接失败 · 点开看原因</span>'
+    : s.status === 'starting' ? '<span class="row-meta">正在连接…</span>'
+    : s.status === 'disabled' ? '<span class="row-meta">已禁用</span>'
+    : `<span class="row-meta">${toolCount} 个工具</span>`
+  return `<div class="row" data-open="${open}">
+    <div class="row-line">
+      <button class="row-main" data-row="${s.id}" aria-expanded="${open}">
+        <span class="dot ${st.dot}" title="${st.text}"></span>
+        <span class="row-name">${esc(s.name)}</span>
+        <span class="tag soft">${s.transport}</span>
+        ${meta}
+      </button>
+      ${ICON.caret.replace('class="row-caret"', `class="row-caret" data-row="${s.id}"`)}
+      <button class="switch" role="switch" aria-checked="${s.enabled}" data-switch="${s.id}" aria-label="${s.enabled ? '禁用' : '启用'} ${esc(s.name)}"></button>
+      <div class="menu-wrap">
+        <button class="btn icon-btn" data-menu="${s.id}" aria-label="更多操作">${ICON.more}</button>
+        ${state.menu === s.id ? `<div class="menu" role="menu">
+          ${s.editable ? `<button data-edit="${s.id}">编辑</button>` : ''}
+          <button data-act="test-row">重新连接</button>
+          <button data-act="repo">设置开源地址</button>
+          ${s.editable ? `<hr><button class="danger" data-ask-remove="${s.id}">删除</button>` : ''}
+        </div>` : ''}
+      </div>
+    </div>
+    <div class="row-detail">
+      ${state.confirm === s.id ? `<div class="confirm"><span>卸载插件包并删除它在 mcp-bundles 里的配置文件？</span><span class="sp" style="flex:1"></span><button class="btn danger" data-remove="${s.id}">确认删除</button><button class="btn ghost" data-cancel-remove>取消</button></div>` : ''}
+      ${s.error ? `<pre class="err">${esc(s.error)}</pre>` : ''}
+      <dl class="kv">
+        ${s.transport === 'http'
+          ? `<dt>地址</dt><dd class="mono">${esc(s.url)}</dd>${s.headers?.length ? `<dt>请求头</dt><dd>${s.headers.map(([n, v]) => `<span class="tag" title="${v}">${n}</span>`).join(' ')}</dd>` : ''}`
+          : `<dt>命令</dt><dd class="mono">${esc(s.command)}</dd>${s.env.length ? `<dt>环境变量</dt><dd>${s.env.map(([n, v]) => `<span class="tag" title="${v}">${n}</span> <span class="muted">${v}</span>`).join(' ')}</dd>` : ''}`}
+        <dt>来源</dt><dd>${esc(s.source)}</dd>
+        ${s.repo ? `<dt>开源地址</dt><dd><a href="${s.repo}" target="_blank" rel="noreferrer" style="color:var(--accent);text-decoration:none">${esc(s.repo.replace('https://', ''))}</a></dd>` : ''}
+        <dt>工具</dt><dd>${s.tools.length ? `<div class="tools">${s.tools.map(t => `<span class="tag">${esc(t)}</span>`).join('')}</div>` : '<span class="muted">暂无</span>'}</dd>
+      </dl>
+    </div>
+  </div>`
+}
+
+// ── 添加 ────────────────────────────────────────────────────────────────────
+const SOURCES = [
+  { id: 'registry', icon: ICON.search, title: '搜索官方目录', text: '按名称搜，选中后自动填好配置' },
+  { id: 'manual', icon: ICON.pen, title: '手动填写', text: '已知启动命令或服务地址' },
+  { id: 'ai', icon: ICON.spark, title: '让 AI 安装', text: '给仓库、包名或网页，AI 搞定' },
+  { id: 'import', icon: ICON.import, title: '从其他客户端导入', text: 'Cursor、Claude 等已配好的' },
+]
+function addView() {
+  const src = state.source
+  return `<section class="panel">
+    <div class="panel-head"><h2>你想怎么添加？</h2></div>
+    <div class="sources">${SOURCES.map(s => `<button class="src" data-source="${s.id}" aria-pressed="${src === s.id}">${s.icon}<b>${s.title}</b><span>${s.text}</span></button>`).join('')}</div>
+    ${src === null ? '' : `<div class="step">${
+      src === 'registry' ? (state.form ? formView('add') : registryView())
+      : src === 'manual' ? formView('add')
+      : src === 'ai' ? aiView()
+      : importView()}</div>`}
+  </section>`
+}
+function registryView() {
+  const results = state.searched ? registry.filter(r => (r.title + r.name).toLowerCase().includes(state.query.trim().toLowerCase()) || state.query.trim() === '') : []
+  return `<form class="search" data-form="search">
+      <input class="input" id="q" type="search" value="${esc(state.query)}" placeholder="搜索名称，例如 github、context7、filesystem">
+      <button class="btn primary" type="submit">搜索</button>
+    </form>
+    <p class="note">来自 registry.modelcontextprotocol.io。选一个运行方式点「使用」，会进入下一步，配置已经填好。</p>
+    <div class="results">${results.length === 0 && state.searched ? `<p class="note">没找到「${esc(state.query)}」，试试 context7、github、time，或改用「让 AI 安装」。</p>` : ''}
+    ${results.map((r, ri) => `<div class="res">
+      <div class="res-top"><b>${esc(r.title)}</b><span class="tag">${r.version}</span><span class="muted" style="font-family:var(--mono)">${esc(r.name)}</span><a href="${r.repo}" target="_blank" rel="noreferrer">源码 ↗</a></div>
+      <span class="muted">${esc(r.desc)}</span>
+      ${r.options.map((o, oi) => `<div class="opt"><code title="${esc(o.line)}">${esc(o.line)}</code><span class="r"><span class="tag soft">${o.kind}</span>${o.needs ? `<span class="chip bad">本机没有 ${o.needs}</span>` : ''}<button class="btn" data-use="${ri}:${oi}">使用</button></span></div>`).join('')}
+    </div>`).join('')}</div>`
+}
+function aiView() {
+  const v = state.aiSource
+  const kind = /^https:\/\/github\.com\//.test(v) ? '代码仓库' : /^(npx|@)/.test(v) ? 'npm 包' : /^uvx/.test(v) ? 'PyPI 包' : v ? '网页或远程端点' : ''
+  return `<div class="crumb">让 AI 安装</div>
+    <label class="field"><span class="label">来源</span>
+      <input class="input" id="ai-src" value="${esc(v)}" placeholder="https://github.com/owner/project，或 @scope/package，或 uvx 包名">
+      ${kind ? `<span class="hint"><span class="chip info">${kind}</span></span>` : '<span class="hint">代码仓库、npm/PyPI 包名、Docker 镜像、README 里的启动命令，或任意网页链接。</span>'}
+    </label>
+    <label class="field"><span class="label">补充说明（可选）</span><textarea class="input" rows="2" placeholder="例如：用 Docker 运行；API Key 在环境变量 XXX"></textarea></label>
+    <div class="field"><span class="label">使用的模型</span>
+      <div class="actions"><select class="input" style="width:auto"><option>DeepSeek</option><option>geek2api</option></select><select class="input" style="width:auto"><option>deepseek-v4-pro（默认）</option><option>deepseek-v4-flash</option></select></div>
+      <span class="hint">只对这次的会话生效，不改默认模型。</span>
+    </div>
+    <div class="actions"><button class="btn primary lg" data-act="ai-start" ${v ? '' : 'disabled'}>打开会话开始安装</button><span class="muted">在默认工作区开新会话，每步安装前都会问你。</span></div>`
+}
+function importView() {
+  const rows = clients
+  const n = rows.filter(r => state.picked.has(r.name)).length
+  return `<div class="crumb">从其他客户端导入 · 上次扫描于 10 月 14 日 21:40 <button data-go="discover">重新扫描</button></div>
+    <div style="display:grid;gap:6px">${rows.map(r => `<label class="imp">
+      <input type="checkbox" data-pick="${r.name}" ${state.picked.has(r.name) ? 'checked' : ''} ${r.present ? 'disabled' : ''} style="accent-color:var(--accent)">
+      <span style="min-width:0"><span class="title"><b>${r.name}</b><span class="tag soft">${r.http ? 'http' : 'stdio'}</span>${r.clients.map(c => `<span class="tag soft" style="font-family:var(--sans)">${c}</span>`).join('')}</span><code title="${esc(r.line)}">${esc(r.line)}</code></span>
+      ${r.present ? '<span class="chip idle">已安装</span>' : '<span></span>'}
+    </label>`).join('')}</div>
+    <p class="note">环境变量和请求头会原样复制（可能含密钥），保存在本机 mcp-bundles 目录。</p>
+    <div class="actions"><button class="btn primary lg" data-act="import" ${n ? '' : 'disabled'}>导入 ${n} 个</button></div>`
+}
+
+// 统一表单：目录 / 手动 / 编辑 共用
+function formView(mode) {
+  const f = state.form ?? (state.form = { transport: 'stdio', name: '', commandLine: '', env: [], url: '', headers: [], cwd: '', bridge: false })
+  const remote = f.transport === 'http'
+  const needs = !remote && /^uvx\b/.test(f.commandLine) ? 'uvx' : null
+  const pairs = remote ? f.headers : f.env
+  const crumb = mode === 'edit' ? '' : `<div class="crumb">${state.source === 'registry' ? `<button data-act="back">搜索官方目录</button> › 检查配置` : '手动填写'}</div>`
+  return `${crumb}
+    ${state.origin ? `<div class="result" style="background:var(--accent-soft)"><span>已从目录条目「${esc(state.origin)}」填好。标了「读环境变量」的需要先在系统里设置。</span></div>` : ''}
+    <div class="seg" role="radiogroup" aria-label="运行方式">
+      <button type="button" role="radio" aria-checked="${!remote}" data-transport="stdio">本地命令</button>
+      <button type="button" role="radio" aria-checked="${remote}" data-transport="http">远程服务</button>
+    </div>
+    <label class="field"><span class="label">名称</span><input class="input" id="f-name" value="${esc(f.name)}" ${mode === 'edit' ? 'disabled' : ''} placeholder="context7">${mode === 'edit' ? '<span class="hint">编辑时不能改名。</span>' : ''}</label>
+    ${remote
+      ? `<label class="field"><span class="label">服务地址</span><input class="input mono" id="f-url" value="${esc(f.url)}" placeholder="https://mcp.example.com/mcp"></label>`
+      : `<label class="field"><span class="label">启动命令</span><input class="input mono" id="f-cmd" value="${esc(f.commandLine)}" placeholder="npx -y @upstash/context7-mcp"><span class="hint">整行填写；带空格的参数用引号。</span></label>`}
+    ${needs ? `<div class="warn-line">⚠ DSH 的 PATH 里没有 uvx，这条命令启动不了。请先安装 uv，然后完全退出并重新打开 DSH。</div>` : ''}
+    <div class="field"><span class="label">${remote ? '请求头' : '环境变量'}</span>
+      <div class="pairs">${pairs.map((p, i) => `<div style="display:grid;gap:3px">
+        <div class="pair"><input class="input mono" data-pn="${i}" value="${esc(p.name)}" placeholder="${remote ? 'Authorization' : 'API_KEY'}"><input class="input mono" data-pv="${i}" value="${esc(p.value)}" placeholder="${p.fromEnv ? '变量名，或 Bearer ${TOKEN}' : '值'}"><label class="check"><input type="checkbox" data-pe="${i}" ${p.fromEnv ? 'checked' : ''}>读环境变量</label><button class="btn icon-btn" data-del-pair="${i}" aria-label="删除这一行">${ICON.x}</button></div>
+        ${p.desc ? `<span class="hint">${esc(p.desc)}</span>` : ''}
+        ${p.fromEnv && /GITHUB|CONTEXT7/.test(p.value) ? `<span class="warn-line">DSH 读不到环境变量 ${esc(p.value.replace(/^Bearer \$\{|\}$/g, ''))}。设置后需要完全退出并重新打开 DSH。</span>` : ''}
+      </div>`).join('')}
+        <div><button class="btn ghost" data-act="add-pair">+ 添加一行</button></div>
+      </div>
+      <span class="hint">密钥建议勾选「读环境变量」，配置里只记变量名，不保存密钥本身。</span>
+    </div>
+    <details class="adv"${f.bridge ? ' open' : ''}><summary>高级选项</summary><div>
+      ${remote
+        ? `<label class="check"><input type="checkbox" id="f-bridge" ${f.bridge ? 'checked' : ''}>通过 mcp-remote 桥接（只支持 SSE 或需要 OAuth 登录的服务）</label><span class="hint">在本机用 npx -y mcp-remote 连接这个地址，需要登录时会打开浏览器。</span>`
+        : `<label class="field"><span class="label">工作目录</span><input class="input mono" placeholder="留空使用 DSH 默认目录"></label>`}
+      <label class="field"><span class="label">工具调用超时</span><input class="input" style="width:140px" value="120 秒"></label>
+    </div></details>
+    ${testView(remote)}
+    <div class="actions">
+      <button class="btn primary lg" data-act="save" ${state.testing ? 'disabled' : ''}>${state.testing ? '<span class="spinner"></span>测试中…' : mode === 'edit' ? '测试并保存' : '测试并添加'}</button>
+      <button class="btn lg" data-act="test" ${state.testing ? 'disabled' : ''}>只测试</button>
+      ${state.test && !state.test.ok ? `<button class="btn ghost lg" data-act="force">${mode === 'edit' ? '仍然保存' : '仍然添加'}</button>` : ''}
+      <span class="sp"></span>
+      ${state.testing ? '<span class="muted">首次运行 npx / uvx / docker 要下载，可能要一两分钟</span>' : ''}
+    </div>`
+}
+function testView(remote) {
+  const t = state.test
+  if (!t) return ''
+  if (t.ok) return `<div class="result ok"><span class="t">✓ 连接成功：${esc(t.server)}，${t.tools.length} 个工具（${t.ms} 毫秒）</span><div class="tools">${t.tools.map(x => `<span class="tag">${x}</span>`).join('')}</div></div>`
+  return `<div class="result bad"><span class="t">✕ ${esc(t.title)}</span><span class="muted">${esc(t.detail)}</span>
+    ${t.bridge && remote && !state.form.bridge ? `<div class="actions"><span class="muted">可以改用 mcp-remote 桥接再试。</span><button class="btn primary" data-act="use-bridge">改用 mcp-remote</button></div>` : ''}</div>`
+}
+
+// ── 发现 ────────────────────────────────────────────────────────────────────
+function discoverView() {
+  return `<section class="panel">
+    <div class="panel-head"><h2>扫描本机</h2><span class="muted">上次扫描于 10 月 14 日 21:40</span><span class="sp"></span><button class="btn" data-act="rescan">重新扫描</button></div>
+    <div class="stats">
+      <div class="stat"><b>142</b><span>已安装的应用</span></div>
+      <div class="stat"><b>38</b><span>后台服务</span></div>
+      <div class="stat"><b>21</b><span>监听端口</span></div>
+      <div class="stat"><b>3</b><span>Docker 容器</span></div>
+    </div>
+    <div class="runtimes">${runtimes.map(([n, v]) => `<span class="chip ${v ? 'ok' : 'bad'}">${n} ${v ?? '未找到'}</span>`).join('')}</div>
+    <details class="group" open><summary>其他客户端里的 MCP <span class="chip info">4</span><span class="sp" style="flex:1"></span><button class="btn" data-go-import>去导入</button></summary>
+      <ul><li>ida-pro-mcp · Claude Code、Cursor、Windsurf</li><li>filesystem · Claude Desktop</li><li>playwright · Cursor、VS Code</li><li>sentry · Claude Code</li></ul></details>
+    <details class="group"><summary>已安装的应用 <span class="muted">142</span></summary><ul><li>Docker Desktop · Docker Inc.</li><li>IDA Pro 9.1 · Hex-Rays</li><li>Obsidian · Dynalist</li><li>PostgreSQL 16</li><li>Notion</li><li>Figma</li><li>…</li></ul></details>
+    <details class="group"><summary>后台服务 <span class="muted">38</span></summary><ul><li>postgresql-x64-16</li><li>Redis</li><li>…</li></ul></details>
+    <details class="group"><summary>监听端口 <span class="muted">21</span></summary><ul><li>5432 ← postgres.exe</li><li>6379 ← redis-server.exe</li><li>13337 ← ida64.exe</li><li>…</li></ul></details>
+    <details class="group"><summary>Docker 容器 <span class="muted">3</span></summary><ul><li>sub2api-dev (postgres:16)</li><li>…</li></ul></details>
+  </section>
+  <section class="panel">
+    <div class="panel-head"><h2>让 AI 找出能接入的软件</h2></div>
+    <div style="display:grid;gap:12px;padding:0 16px 16px">
+      <p class="note">把上面的清单（不含文件路径和密钥）发给 AI，它联网查哪些软件有 MCP 服务器，列成表格后问你要接哪些。比如本机有 PostgreSQL、Obsidian、Figma，都有可用的 MCP。</p>
+      <div class="actions"><select class="input" style="width:auto"><option>deepseek-v4-pro（默认）</option></select><button class="btn primary" data-act="ai-scan">交给 AI 分析</button></div>
+    </div>
+  </section>`
+}
+
+// ── 抽屉（编辑） ────────────────────────────────────────────────────────────
+function openEdit(id) {
+  const s = servers.find(x => x.id === id)
+  state.menu = null
+  state.test = null
+  state.origin = null
+  state.form = s.transport === 'http'
+    ? { transport: 'http', name: s.name, url: s.url, headers: (s.headers ?? []).map(([n, v]) => ({ name: n, value: v === '读环境变量' ? 'Bearer ${GITHUB_TOKEN}' : '', fromEnv: v === '读环境变量' })), bridge: false }
+    : { transport: 'stdio', name: s.name, commandLine: s.command, env: s.env.map(([n, v]) => ({ name: n, value: v === '读环境变量' ? n : 'C:\\IDA', fromEnv: v === '读环境变量' })) }
+  state.editing = s
+  render()
+}
+function drawerView() {
+  if (!state.editing) return ''
+  return `<div class="scrim" data-close-drawer></div>
+    <aside class="drawer" role="dialog" aria-label="编辑 ${esc(state.editing.name)}">
+      <div class="drawer-head"><h2>编辑 ${esc(state.editing.name)}</h2><span class="sp" style="flex:1"></span><button class="btn icon-btn" data-close-drawer aria-label="关闭">${ICON.x}</button></div>
+      <div class="drawer-body">${formView('edit')}</div>
+      <div class="drawer-foot"><span class="muted">保存时先测试，再重新安装配置包；失败会自动恢复原配置。</span></div>
+    </aside>`
+}
+
+function exportLayer() {
+  if (!state.exporting) return ''
+  const json = JSON.stringify({ mcpServers: {
+    'ida-pro-mcp': { command: 'C:\\Python312\\python.exe', args: ['C:\\ida-mcp\\server.py', '--port', '13337'], env: { IDA_HOME: 'C:\\IDA' } },
+    context7: { command: 'npx', args: ['-y', '@upstash/context7-mcp@4.4.1'], env: { CONTEXT7_API_KEY: '${CONTEXT7_API_KEY}' } },
+    github: { type: 'http', url: 'https://api.githubcopilot.com/mcp/', headers: { Authorization: 'Bearer ${GITHUB_TOKEN}' } },
+  } }, null, 2)
+  return `<div class="scrim" data-close-export></div>
+    <aside class="drawer" role="dialog" aria-label="导出">
+      <div class="drawer-head"><h2>导出 5 个服务器</h2><span class="sp" style="flex:1"></span><button class="btn icon-btn" data-close-export aria-label="关闭">${ICON.x}</button></div>
+      <div class="drawer-body">
+        <p class="note">标准 mcpServers 格式，Claude Desktop、Claude Code、Cursor、Windsurf 都能用。密钥不会导出，换成了 \${变量名}。</p>
+        <textarea class="input mono" rows="16" readonly>${esc(json)}</textarea>
+        <ul class="note" style="padding-left:18px;margin:0"><li>memory：在 DSH 里是禁用的</li><li>github：请求头 Authorization 需要在目标客户端里填写</li></ul>
+      </div>
+      <div class="drawer-foot actions"><button class="btn primary" data-act="copy">复制</button><button class="btn">下载 JSON</button></div>
+    </aside>`
+}
+
+// ── 渲染与事件 ──────────────────────────────────────────────────────────────
+function render() {
+  document.querySelectorAll('.tab').forEach(t => t.setAttribute('aria-selected', String(t.dataset.tab === state.tab)))
+  const failed = servers.filter(s => s.status === 'failed').length
+  const n = $('#count-installed'); n.textContent = state.empty ? '0' : String(servers.length); n.className = 'n' + (failed && !state.empty ? ' bad' : '')
+  $('#view').innerHTML = state.tab === 'installed' ? installedView() : state.tab === 'add' ? addView() : discoverView()
+  $('#layer').innerHTML = (state.editing ? drawerView() : '') + exportLayer()
+}
+function readForm(root) {
+  const f = state.form
+  if (!f) return
+  const name = $('#f-name', root); if (name && !name.disabled) f.name = name.value
+  const cmd = $('#f-cmd', root); if (cmd) f.commandLine = cmd.value
+  const url = $('#f-url', root); if (url) f.url = url.value
+  const bridge = $('#f-bridge', root); if (bridge) f.bridge = bridge.checked
+  const list = f.transport === 'http' ? f.headers : f.env
+  root.querySelectorAll('[data-pn]').forEach(input => { const p = list[Number(input.dataset.pn)]; if (p) p.name = input.value })
+  root.querySelectorAll('[data-pv]').forEach(input => { const p = list[Number(input.dataset.pv)]; if (p) p.value = input.value })
+  root.querySelectorAll('[data-pe]').forEach(input => { const p = list[Number(input.dataset.pe)]; if (p) p.fromEnv = input.checked })
+}
+function runTest(then) {
+  readForm(document)
+  state.testing = true; state.test = null; render()
+  setTimeout(() => {
+    const f = state.form
+    state.testing = false
+    if (f.transport === 'http' && /\/sse\/?$/.test(f.url) && !f.bridge) state.test = { ok: false, title: '服务器不接受 streamable-http 请求，可能只支持 SSE', detail: '服务器返回 405', bridge: true }
+    else if (f.transport === 'http' && /sentry/.test(f.url) && !f.bridge) state.test = { ok: false, title: '这个服务需要 OAuth 登录，DSH 不能直连', detail: '服务器返回 401，并要求 OAuth 登录', bridge: true }
+    else if (/^uvx\b/.test(f.commandLine ?? '') && f.transport === 'stdio') state.test = { ok: false, title: '找不到要运行的程序', detail: '"uvx" 不在 DSH 能看到的 PATH 里' }
+    else state.test = { ok: true, server: (f.name || 'server') + ' 1.0', ms: 1400 + Math.round(Math.random() * 900), tools: f.name === 'github' ? ['get_me', 'search_repositories', 'get_file_contents', 'create_issue'] : ['resolve-library-id', 'query-docs'] }
+    render()
+    if (state.test.ok && then) then()
+  }, 1300)
+}
+function saved() {
+  const f = state.form
+  if (state.editing) { toast(`已保存 ${state.editing.name}`); state.editing = null }
+  else { toast(`已添加 ${f.name || '新服务器'}，回到「已安装」可以看到连接状态`); state.source = null; state.origin = null }
+  state.form = null; state.test = null
+  render()
+}
+
+document.addEventListener('click', e => {
+  const el = e.target.closest('button, [data-row], label, input')
+  if (!el) { if (state.menu) { state.menu = null; render() } return }
+  const d = el.dataset
+  if (el.classList.contains('tab')) { state.tab = d.tab; state.menu = null; render(); return }
+  if (d.go) { state.tab = d.go; render(); return }
+  if (d.goImport !== undefined) { e.preventDefault(); state.tab = 'add'; state.source = 'import'; state.form = null; render(); return }
+  if (d.row) { state.open.has(d.row) ? state.open.delete(d.row) : state.open.add(d.row); state.menu = null; render(); return }
+  if (d.switch) { const s = servers.find(x => x.id === d.switch); s.enabled = !s.enabled; s.status = s.enabled ? 'starting' : 'disabled'; render(); if (s.enabled) setTimeout(() => { s.status = 'connected'; render() }, 1500); return }
+  if (d.menu) { e.stopPropagation(); state.menu = state.menu === d.menu ? null : d.menu; render(); return }
+  if (d.edit) { openEdit(d.edit); return }
+  if (d.askRemove) { state.confirm = d.askRemove; state.menu = null; state.open.add(d.askRemove); render(); return }
+  if (d.cancelRemove !== undefined) { state.confirm = null; render(); return }
+  if (d.remove) { const i = servers.findIndex(x => x.id === d.remove); toast(`已删除 ${servers[i].name}`); servers.splice(i, 1); state.confirm = null; render(); return }
+  if (d.source) { state.source = state.source === d.source ? null : d.source; state.form = null; state.test = null; state.origin = null; render(); return }
+  if (d.use) { const [ri, oi] = d.use.split(':').map(Number); const r = registry[ri]; state.form = JSON.parse(JSON.stringify({ env: [], headers: [], bridge: false, ...r.options[oi].form })); state.origin = r.title; state.test = null; render(); return }
+  if (d.transport) { readForm(document); state.form.transport = d.transport; state.test = null; render(); return }
+  if (d.delPair) { readForm(document); const list = state.form.transport === 'http' ? state.form.headers : state.form.env; list.splice(Number(d.delPair), 1); render(); return }
+  if (d.closeDrawer !== undefined) { state.editing = null; state.form = null; state.test = null; render(); return }
+  if (d.closeExport !== undefined) { state.exporting = false; render(); return }
+  if (d.pick) { d.pick && (el.checked ? state.picked.add(d.pick) : state.picked.delete(d.pick)); render(); return }
+  switch (d.act) {
+    case 'export': state.exporting = true; render(); break
+    case 'refresh': toast('已刷新'); break
+    case 'copy': toast('已复制'); break
+    case 'back': state.form = null; state.origin = null; state.test = null; render(); break
+    case 'add-pair': readForm(document); (state.form.transport === 'http' ? state.form.headers : state.form.env).push({ name: '', value: '', fromEnv: false }); render(); break
+    case 'test': runTest(); break
+    case 'save': runTest(saved); break
+    case 'force': saved(); break
+    case 'use-bridge': readForm(document); state.form.bridge = true; state.test = null; render(); break
+    case 'ai-start': toast('已在默认工作区打开会话（原型不会真的打开）'); break
+    case 'ai-scan': toast('已打开会话，AI 正在联网分析（原型）'); break
+    case 'import': toast(`已导入 ${state.picked.size} 个服务器`); state.picked.clear(); render(); break
+    case 'rescan': toast('扫描完成'); break
+    case 'test-row': state.menu = null; toast('正在重新连接…'); render(); break
+    case 'repo': state.menu = null; toast('原型：这里会弹出一个输入框'); render(); break
+  }
+})
+document.addEventListener('submit', e => {
+  e.preventDefault()
+  if (e.target.dataset.form === 'search') { state.query = $('#q').value; state.searched = true; render() }
+})
+document.addEventListener('input', e => {
+  if (e.target.id === 'ai-src') {
+    state.aiSource = e.target.value
+    const pos = e.target.selectionStart
+    render(); const input = $('#ai-src'); input.focus(); input.setSelectionRange(pos, pos)
+  }
+})
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && (state.editing || state.exporting || state.menu)) { state.editing = null; state.exporting = false; state.menu = null; state.form = state.tab === 'add' ? state.form : null; render() } })
+$('#add-top').addEventListener('click', () => { state.tab = 'add'; render() })
+$('#theme').addEventListener('click', () => {
+  const root = document.documentElement
+  const dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches
+  root.dataset.theme = dark ? 'light' : 'dark'
+})
+$('#toggle-empty').addEventListener('click', () => { state.empty = !state.empty; state.tab = 'installed'; $('#toggle-empty').textContent = state.empty ? '回到有数据' : '看空状态'; render() })
+render()
+</script>
+</body>
+</html>

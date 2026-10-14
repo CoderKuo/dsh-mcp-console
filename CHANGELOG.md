@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.9
+
+- **Redesigned page**, organised by task instead of one long scroll of cards:
+  - **Installed** (the default tab): one compact row per server with its state dot, name, transport, a short status, the switch, and a menu (edit, repository link, remove). Failed servers come first and open to their error; a row opens to its configuration, tools, and source. A summary line counts connected, failed, connecting, and switched-off servers and their tools; export and refresh sit in the panel header. An empty profile gets a starting point instead of an empty list.
+  - **Add**: one place for every way to add a server. Pick a source (search the official registry, fill in by hand, install with AI, import from other clients), then finish below. Registry results and the by-hand path end in the same form, which shows only what most servers need; the working directory and the mcp-remote bridge sit under Advanced. Import lists the servers of other clients with checkboxes and imports the chosen ones one after another.
+  - **Discover**: the local scan as counts and runtimes with every group folded, the MCP servers other clients configure (with a shortcut to import them), and the AI research.
+  - Editing and the export open in a drawer from the right instead of moving the page. The chosen tab is remembered.
+- The header has an Add MCP button and the Installed tab shows how many servers failed.
+
 ## 0.1.8
 
 - **Test before adding**: Add manually tries the server first and only installs it once the MCP handshake (`initialize`, `notifications/initialized`, `tools/list`) succeeds; the result shows the server name, version, and tools, or why it failed (program not found, exited with its stderr, timed out, refused credentials, OAuth required, SSE only, unreachable). A failed try can still be saved on purpose, and there is a separate Test connection button. A local server runs through `ctx.subprocess` with the explicit environment the row would get; any configured value that shows up in its output is masked.

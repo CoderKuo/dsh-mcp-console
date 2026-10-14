@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MCP 管理 · 真实页面预览</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #f6f6f7; font: 14px/22px -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+  #root { height: 100%; }
+  .bar { position: fixed; right: 12px; bottom: 12px; z-index: 100; display: flex; gap: 6px; padding: 6px; border-radius: 10px; background: rgba(0,0,0,.72); color: #fff; font-size: 12px; }
+  .bar button { border: 0; border-radius: 6px; padding: 4px 8px; background: rgba(255,255,255,.14); color: #fff; cursor: pointer; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<div class="bar"><span style="padding:4px">预览：真实 lib/client.js + 假数据</span><button id="empty">空列表</button></div>
+<script src="vendor/react.development.js"></script>
+<script src="vendor/react-dom.development.js"></script>
+<script>
+// A fake DSH host: the module loader, the slots, the locale, and the plugin's RPC channel.
+const params = new URLSearchParams(location.search)
+if (params.get('tab')) localStorage.setItem('dsh-mcp-console.tab', params.get('tab'))
+const jsxRuntime = {
+  Fragment: React.Fragment,
+  jsx: (type, props, key) => React.createElement(type, key === undefined ? props : { ...props, key }),
+  jsxs: (type, props, key) => React.createElement(type, key === undefined ? props : { ...props, key }),
+}
+let plugin
+window.__ModuleLoader__ = { load: ({ factory }) => { plugin = factory(name => ({ react: React, 'react/jsx-runtime': jsxRuntime })[name]) } }
+
+const delay = (ms, value) => new Promise(resolve => setTimeout(() => resolve(value), ms))
+const mcpEnv = names => names.map(name => ({ name, source: 'expression' }))
+let servers = [
+  { entryId: 'include:mcp-ida', rowId: 'mcp-ida', name: 'ida-pro-mcp', status: 'failed', enabled: true, toolCount: 0, tools: [], removable: true, toggleable: true, toggleVia: 'bundle',
+    config: { transport: 'stdio', command: 'C:\\Python312\\python.exe', args: ['C:\\ida-mcp\\server.py', '--port', '13337'], env: [{ name: 'IDA_HOME', source: 'literal' }] },
+    bundle: { name: '@local/mcp-ida-pro-mcp', version: '0.1.0', mcpRows: 1 },
+    error: 'ConnectionRefusedError: [WinError 10061] 由于目标计算机积极拒绝，无法连接。' },
+  { entryId: 'include:mcp-context7', rowId: 'mcp-context7', name: 'context7', status: 'connected', enabled: true, toolCount: 2, tools: ['resolve-library-id', 'query-docs'], removable: true, toggleable: true, toggleVia: 'bundle',
+    config: { transport: 'stdio', command: 'npx', args: ['-y', '@upstash/context7-mcp@4.4.1'], env: mcpEnv(['CONTEXT7_API_KEY']) },
+    bundle: { name: '@local/mcp-context7', version: '0.1.0', mcpRows: 1 }, repository: 'https://github.com/upstash/context7' },
+  { entryId: 'include:mcp-github', rowId: 'mcp-github', name: 'github', status: 'connected', enabled: true, toolCount: 26, tools: ['get_me', 'search_repositories', 'get_file_contents', 'create_issue', 'list_pull_requests', 'create_pull_request'], removable: true, toggleable: true, toggleVia: 'row',
+    config: { transport: 'streamable-http', url: 'https://api.githubcopilot.com/mcp/', headers: mcpEnv(['Authorization']) },
+    bundle: { name: '@local/mcp-github', version: '0.1.0', mcpRows: 1 }, repository: 'https://github.com/github/github-mcp-server' },
+  { entryId: 'include:mcp-time', rowId: 'mcp-time', name: 'time', status: 'starting', enabled: true, toolCount: 0, tools: [], removable: true, toggleable: true, toggleVia: 'bundle',
+    config: { transport: 'stdio', command: 'uvx', args: ['mcp-server-time'], env: [] }, bundle: { name: '@local/mcp-time', mcpRows: 1 } },
+  { entryId: 'include:memory', rowId: 'memory', name: 'memory', status: 'disabled', enabled: false, toolCount: 0, tools: [], removable: false, toggleable: true, toggleVia: 'row',
+    config: { transport: 'stdio', command: 'npx', args: ['-y', '@modelcontextprotocol/server-memory'], env: [] } },
+]
+if (params.has('empty')) servers = []
+const runtimes = { node: { found: true, version: '24.18.1' }, npx: { found: true }, uv: { found: false }, uvx: { found: false }, python: { found: true, version: '3.12.4' }, docker: { found: true, version: '28.3.2' }, bun: { found: false }, deno: { found: false } }
+const scan = {
+  scannedAt: Date.now() - 3_600_000, platform: 'win32', runtimes,
+  apps: [{ name: 'Docker Desktop', publisher: 'Docker Inc.' }, { name: 'IDA Pro 9.1', publisher: 'Hex-Rays' }, { name: 'Obsidian' }, { name: 'PostgreSQL 16' }, { name: 'Figma' }, { name: 'Notion' }],
+  services: [{ name: 'postgresql-x64-16' }, { name: 'Redis' }],
+  processes: [{ name: 'ida64.exe', product: 'IDA Pro' }],
+  ports: [{ port: 5432, process: 'postgres.exe' }, { port: 6379, process: 'redis-server.exe' }, { port: 13337, process: 'ida64.exe' }],
+  containers: [{ name: 'sub2api-dev', image: 'postgres:16' }],
+  clients: [
+    { client: 'Claude Code', servers: [{ name: 'ida-pro-mcp', command: 'C:\\Python312\\python.exe', args: ['C:\\ida-mcp\\server.py'] }, { name: 'sentry', url: 'https://mcp.sentry.dev/mcp' }] },
+    { client: 'Cursor', servers: [{ name: 'ida-pro-mcp', command: 'C:\\Python312\\python.exe', args: ['C:\\ida-mcp\\server.py'] }, { name: 'playwright', command: 'npx', args: ['-y', '@playwright/mcp@latest'] }] },
+    { client: 'Claude Desktop', servers: [{ name: 'filesystem', command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', 'D:\\work'] }] },
+  ],
+}
+const registry = [
+  { name: 'io.github.upstash/context7', title: 'Context7', version: '4.4.1', description: 'Up-to-date code docs for any prompt', repository: 'https://github.com/upstash/context7', skipped: [],
+    options: [
+      { kind: 'npm', runtime: 'npx', form: { name: 'context7', transport: 'stdio', commandLine: 'npx -y @upstash/context7-mcp@4.4.1', cwd: '', url: '', headers: [], bridge: false, env: [{ name: 'CONTEXT7_API_KEY', value: 'CONTEXT7_API_KEY', fromEnv: true, description: 'API key for authentication' }] } },
+      { kind: 'streamable-http', form: { name: 'context7', transport: 'streamable-http', commandLine: '', cwd: '', env: [], url: 'https://mcp.context7.com/mcp', headers: [], bridge: false } },
+    ] },
+  { name: 'io.github.modelcontextprotocol/time', title: 'Time', version: '2025.9.25', description: 'Time and timezone conversion', repository: 'https://github.com/modelcontextprotocol/servers', skipped: [],
+    options: [{ kind: 'pypi', runtime: 'uvx', form: { name: 'time', transport: 'stdio', commandLine: 'uvx mcp-server-time==2025.9.25', cwd: '', url: '', headers: [], bridge: false, env: [] } }] },
+]
+const endpoints = {
+  status: () => ({ servers, manageable: true, sessions: true, writable: true, bundleDir: 'C:\\Users\\me\\.dsh\\mcp-bundles', version: window.__version, revision: 1 }),
+  'status/wait': (_p, signal) => new Promise(resolve => { signal?.addEventListener('abort', () => resolve({ revision: 1, changed: false })) }),
+  models: () => ({ providers: [{ id: 'deepseek', name: 'DeepSeek', models: [{ id: 'deepseek-v4-pro', name: 'deepseek-v4-pro' }, { id: 'deepseek-v4-flash', name: 'deepseek-v4-flash' }] }], default: { provider: 'deepseek', model: 'deepseek-v4-pro' } }),
+  runtimes: () => runtimes,
+  'scan/last': () => scan,
+  scan: () => delay(1200, { ...scan, scannedAt: Date.now() }),
+  'env/check': ({ names }) => Object.fromEntries(names.map(name => [name, name !== 'CONTEXT7_API_KEY'])),
+  'registry/search': () => delay(500, { results: registry }),
+  'servers/test': form => delay(1200, /^uvx/.test(form.commandLine ?? '') && form.transport === 'stdio'
+    ? { ok: false, reason: 'no-executable', message: '"uvx" was not found on the PATH DSH sees' }
+    : /sentry|\/sse/.test(form.url ?? '') && !form.bridge
+      ? { ok: false, reason: 'oauth', message: 'the server answered 401 and asks for an OAuth sign-in' }
+      : { ok: true, server: { name: form.name || 'server', version: '1.0.0' }, toolCount: 2, tools: ['resolve-library-id', 'query-docs'], ms: 1480 }),
+  'servers/add': form => delay(600, { serverName: form.name, bundle: `@local/mcp-${form.name}`, application: 'applied' }),
+  'servers/update': form => delay(600, { serverName: form.name, application: 'applied' }),
+  'servers/config': ({ entryId }) => {
+    const server = servers.find(item => item.entryId === entryId)
+    if (server.config.transport === 'streamable-http') return { editable: true, form: { name: server.name, transport: 'streamable-http', commandLine: '', cwd: '', env: [], url: server.config.url, headers: [{ name: 'Authorization', value: 'Bearer ${GITHUB_TOKEN}', fromEnv: true }], bridge: false } }
+    return { editable: true, form: { name: server.name, transport: 'stdio', commandLine: [server.config.command, ...server.config.args].join(' '), cwd: '', url: '', headers: [], bridge: false, env: server.config.env.map(item => item.source === 'expression' ? { name: item.name, value: item.name, fromEnv: true } : { name: item.name, value: 'C:\\IDA', fromEnv: false }) } }
+  },
+  'servers/toggle': ({ entryId, enabled }) => { const s = servers.find(item => item.entryId === entryId); s.enabled = enabled; s.status = enabled ? 'connected' : 'disabled'; return delay(300, { application: 'applied' }) },
+  'servers/remove': ({ entryId }) => { servers = servers.filter(item => item.entryId !== entryId); return delay(300, { application: 'applied' }) },
+  'servers/import': ({ name }) => delay(700, { serverName: name, application: 'applied' }),
+  'servers/repository': () => ({}),
+  'servers/export': () => ({ count: servers.length, json: JSON.stringify({ mcpServers: { context7: { command: 'npx', args: ['-y', '@upstash/context7-mcp@4.4.1'], env: { CONTEXT7_API_KEY: '${CONTEXT7_API_KEY}' } } } }, null, 2) + '\n', notes: ['memory: switched off in DSH'] }),
+  'quick-add': () => delay(500, { sessionId: 's1' }),
+  'scan/analyze': () => delay(500, { sessionId: 's2' }),
+}
+const rpc = { call: async (_channel, endpoint, payload, signal) => {
+  try { return { ok: true, value: await endpoints[endpoint](payload ?? {}, signal) } } catch (error) { return { ok: false, error: { message: String(error.message) } } }
+} }
+
+let copy
+let Page
+const lang = params.get('lang') === 'en' ? 'en' : 'zh'
+const ctx = {
+  effect: fn => fn(),
+  locale: { register: (_ns, c) => { copy = c; return () => {} }, bind: () => key => copy[lang][key] ?? key },
+  get: name => (name === 'connection' ? { rpc } : undefined),
+  slots: { inject: (_name, fn) => fn(), register: (options, component) => { if (options.name === 'main') Page = component; return () => {} } },
+}
+const script = document.createElement('script')
+script.src = '/lib/client.js?' + Date.now()
+script.onload = async () => {
+  window.__version = (await (await fetch('/package.json')).json()).version
+  plugin.apply(ctx)
+  const t = ctx.locale.bind()
+  ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(Page, { rpc, t, openSession: () => {} }))
+  window.__ready = true
+  // ?steps=text:搜索官方目录,css:.mcpc-search button … clicks in order, for screenshots.
+  for (const step of (params.get('steps') ?? '').split(',').filter(Boolean)) {
+    await delay(900)
+    const [kind, ...rest] = step.split(':')
+    const target = rest.join(':')
+    const el = kind === 'css'
+      ? document.querySelector(target)
+      : [...document.querySelectorAll('button, summary, label')].find(node => node.textContent.trim() === target || node.getAttribute('aria-label') === target)
+    if (kind === 'type') { const [sel, value] = target.split('=>'); const input = document.querySelector(sel); const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; set.call(input, value); input.dispatchEvent(new Event('input', { bubbles: true })); continue }
+    el?.click()
+  }
+}
+document.head.append(script)
+document.getElementById('empty').onclick = () => { location.search = params.has('empty') ? '' : '?empty' }
+</script>
+</body>
+</html>
