@@ -155,3 +155,21 @@ test('the RPC routes remove, import and wait, and lets Plugin Manager codes thro
   assert.deepEqual((await handler('status/wait', { revision: '2' })).value, { revision: 3, changed: true })
   assert.deepEqual(seen, [['remove', 'include:a'], ['import', { client: 'Cursor', name: 'context7' }], ['wait', { revision: 2 }]])
 })
+
+test('identical servers from several clients fold into one row', async () => {
+  const { groupClientServers, launchLine } = await import('../src/client-groups.js')
+  const rows = groupClientServers([
+    { client: 'Claude Code', name: 'ida-pro-mcp', command: 'python.exe', args: ['server.py'] },
+    { client: 'Cursor', name: 'context7', command: 'npx', args: ['-y', '@upstash/context7-mcp'] },
+    { client: 'Cursor', name: 'ida-pro-mcp', command: 'python.exe', args: ['server.py'] },
+    { client: 'Windsurf', name: 'ida-pro-mcp', command: 'python.exe', args: ['server.py'] },
+    { client: 'Codex', name: 'ida-pro-mcp', command: 'other.exe' },
+  ])
+  assert.deepEqual(rows.map(row => [row.name, row.clients]), [
+    ['ida-pro-mcp', ['Claude Code', 'Cursor', 'Windsurf']],
+    ['context7', ['Cursor']],
+    ['ida-pro-mcp', ['Codex']],
+  ])
+  assert.equal(launchLine(rows[1]), 'npx -y @upstash/context7-mcp')
+  assert.equal(launchLine({ url: 'http://x/mcp' }), 'http://x/mcp')
+})

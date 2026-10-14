@@ -12,6 +12,7 @@ import * as react from 'react'
 
 import { en, zh } from './client-copy.js'
 import { STYLE } from './client-style.js'
+import { groupClientServers, launchLine } from './client-groups.js'
 
 const NS = 'mcpConsole'
 const CHANNEL = '/mcp-console'
@@ -401,46 +402,55 @@ function Group({ title, items, render }) {
 /** MCP servers configured in other clients, each importable in one step. */
 function ClientServers({ servers, existing, call, t, onImported }) {
   const [state, setState] = react.useState({})
-  if (servers.length === 0) return null
-  const importOne = item => {
-    const key = `${item.client}\u0000${item.name}`
-    setState(current => ({ ...current, [key]: { busy: true } }))
-    call('servers/import', { client: item.client, name: item.name })
+  const rows = react.useMemo(() => groupClientServers(servers), [servers])
+  if (rows.length === 0) return null
+  const importOne = row => {
+    setState(current => ({ ...current, [row.key]: { busy: true } }))
+    call('servers/import', { client: row.clients[0], name: row.name })
       .then(result => {
-        setState(current => ({ ...current, [key]: { done: result } }))
+        setState(current => ({ ...current, [row.key]: { done: result } }))
         return onImported()
       })
-      .catch(failure => setState(current => ({ ...current, [key]: { error: clearMessage(failure) } })))
+      .catch(failure => setState(current => ({ ...current, [row.key]: { error: clearMessage(failure) } })))
   }
   return (
-    <div className="mcpc-group mcpc-group-wide">
-      <span className="mcpc-label">{`${t('scanClients')} (${servers.length})`}</span>
-      <p className="mcpc-note">{t('importIntro')}</p>
-      <div className="mcpc-list">
-        {servers.map(item => {
-          const key = `${item.client}\u0000${item.name}`
-          const entry = state[key] ?? {}
-          const present = existing.includes(item.name)
+    <section className="mcpc-imports">
+      <header className="mcpc-imports-head">
+        <span className="mcpc-label">{t('scanClients')}</span>
+        <span className="mcpc-meta">{fill(t('importCount'), { count: rows.length })}</span>
+      </header>
+      <p className="mcpc-meta">{t('importIntro')}</p>
+      <ul className="mcpc-import-list">
+        {rows.map(row => {
+          const entry = state[row.key] ?? {}
+          const present = existing.includes(row.name)
+          const line = launchLine(row)
           return (
-            <div className="mcpc-status" key={key}>
-              <b>{item.name}</b>
-              <span className="mcpc-meta">{item.client}</span>
-              <span className="mcpc-meta mcpc-mono">{item.command ? [item.command, ...(item.args ?? [])].join(' ') : item.url ?? ''}</span>
-              <span className="mcpc-actions">
+            <li key={row.key} className="mcpc-import-row">
+              <div className="mcpc-import-main">
+                <div className="mcpc-import-title">
+                  <span className="mcpc-import-name">{row.name}</span>
+                  <span className="mcpc-tag">{row.command ? 'stdio' : 'http'}</span>
+                  {row.clients.map(client => <span key={client} className="mcpc-tag mcpc-tag-soft">{client}</span>)}
+                  {present && entry.done === undefined && <span className="mcpc-chip" data-tone="neutral">{t('importPresent')}</span>}
+                </div>
+                <span className="mcpc-import-cmd" title={line}>{line}</span>
+                {entry.error && <span className="mcpc-error">{entry.error}</span>}
+              </div>
+              <div className="mcpc-import-action">
                 {entry.done
                   ? <span className="mcpc-chip" data-tone="success">{entry.done.application === 'restart-required' ? t('importedRestart') : fill(t('imported'), { name: entry.done.serverName })}</span>
                   : (
-                    <Button variant={present ? 'ghost' : 'primary'} disabled={entry.busy === true} onClick={() => importOne(item)}>
+                    <Button variant={present ? undefined : 'primary'} disabled={entry.busy === true} onClick={() => importOne(row)}>
                       {entry.busy ? t('importing') : present ? t('importAgain') : t('import')}
                     </Button>
                   )}
-              </span>
-              {entry.error && <span className="mcpc-error">{entry.error}</span>}
-            </div>
+              </div>
+            </li>
           )
         })}
-      </div>
-    </div>
+      </ul>
+    </section>
   )
 }
 

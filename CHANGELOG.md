@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.6
+
+- Redesigned the "MCP in other clients" list: identical servers configured in several clients are one row with the clients as tags; each row shows the name, transport, and clients on one line and the launch command on a single truncated line (the full command on hover), with the action on the right.
+
 ## 0.1.5
 
 - **Remove**: a server provided by a removable bundle (what AI quick add and import install) has a Remove button with an inline confirmation. It uninstalls the bundle through the Plugin Manager's `removeBundle` and deletes the bundle's source directory only when it lies inside the plugin's bundle directory; nothing elsewhere is deleted. A bundle carrying several servers says so before removing them together.
